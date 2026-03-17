@@ -1,0 +1,522 @@
+/* ── Reset ── */
+#adb-overlay *,
+#adb-overlay *::before,
+#adb-overlay *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ── Overlay wrapper ── */
+#adb-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+}
+
+/* ── Stage 1 & 2: backdrop ── */
+#adb-overlay.adb-stage-1,
+#adb-overlay.adb-stage-2 {
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px) saturate(0.7);
+  animation: adb-bg-in 0.4s ease;
+}
+
+@keyframes adb-bg-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ── Card ── */
+.adb-card {
+  background: linear-gradient(145deg, #2a2000 0%, #1f1800 100%);
+  border: 1px solid rgba(255, 220, 100, 0.18);
+  border-radius: 20px;
+  padding: 36px 40px 32px;
+  max-width: 440px;
+  width: calc(100% - 32px);
+  text-align: center;
+  box-shadow:
+    0 0 0 1px rgba(245, 158, 11, 0.15),
+    0 32px 80px rgba(0, 0, 0, 0.7),
+    0 0 60px rgba(245, 158, 11, 0.08);
+  color: #f5f0e0;
+  animation: adb-card-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes adb-card-in {
+  from {
+    opacity: 0;
+    transform: scale(0.88) translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.adb-card .adb-icon {
+  font-size: 40px;
+  margin-bottom: 14px;
+  display: block;
+  animation: adb-icon-pulse 2s ease-in-out infinite;
+}
+
+@keyframes adb-icon-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+.adb-stage-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-radius: 20px;
+  padding: 4px 12px;
+  margin-bottom: 18px;
+  background: rgba(245, 158, 11, 0.15);
+  color: #fde68a;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.adb-stage-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fbbf24;
+  animation: adb-dot-blink 1.2s ease-in-out infinite;
+}
+
+.adb-stage-badge.red {
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+.adb-stage-badge.red::before {
+  background: #ef4444;
+}
+
+@keyframes adb-dot-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.adb-card h2 {
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #fff;
+  margin-bottom: 10px;
+  letter-spacing: -0.01em;
+}
+
+.adb-sub {
+  font-size: 13px;
+  color: rgba(255, 240, 200, 0.65);
+  line-height: 1.6;
+  margin-bottom: 28px;
+}
+
+/* ── Buttons ── */
+.adb-btn-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.adb-btn {
+  border: none;
+  border-radius: 12px;
+  padding: 13px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  letter-spacing: 0.01em;
+}
+
+.adb-btn-primary {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.35);
+}
+
+.adb-btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(245, 158, 11, 0.45);
+}
+
+.adb-btn-primary:active {
+  transform: translateY(0);
+}
+
+.adb-btn-ghost {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 240, 200, 0.75);
+  font-size: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.adb-btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 240, 200, 0.95);
+}
+
+/* ── Floating countdown badge ── */
+#adb-countdown-badge {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2147483646;
+  background: linear-gradient(135deg, #2a2000, #1f1800);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 40px;
+  padding: 10px 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(245, 158, 11, 0.15);
+  animation: adb-badge-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+}
+
+@keyframes adb-badge-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+#adb-countdown-badge .adb-badge-icon {
+  font-size: 16px;
+}
+
+#adb-countdown-badge .adb-badge-text {
+  font-size: 12px;
+  color: rgba(255, 240, 200, 0.7);
+}
+
+#adb-countdown-badge .adb-badge-timer {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fde68a;
+  min-width: 28px;
+  text-align: right;
+}
+
+#adb-countdown-badge .adb-badge-ring {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+#adb-countdown-badge .adb-badge-ring circle {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  transform-origin: center;
+  transform: rotate(-90deg);
+  transition: stroke-dashoffset 1s linear;
+}
+
+#adb-countdown-badge .adb-badge-ring .bg {
+  stroke: rgba(245, 158, 11, 0.15);
+}
+#adb-countdown-badge .adb-badge-ring .fg {
+  stroke: #f59e0b;
+}
+
+/* ── Stage 3: hard block ── */
+#adb-overlay.adb-stage-3 {
+  background: #110d00;
+  animation: adb-hard-in 0.5s ease;
+}
+
+@keyframes adb-hard-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.adb-hard-block {
+  text-align: center;
+  padding: 40px 24px;
+  max-width: 580px;
+  animation: adb-card-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.adb-hard-domain {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 240, 200, 0.5);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+.adb-quote-text {
+  font-size: 30px;
+  font-weight: 800;
+  color: #fff;
+  line-height: 1.35;
+  margin-bottom: 16px;
+  letter-spacing: -0.02em;
+}
+
+.adb-quote-sub {
+  font-size: 14px;
+  color: rgba(255, 240, 200, 0.5);
+  margin-bottom: 44px;
+  line-height: 1.6;
+}
+
+@keyframes adb-hard-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.adb-hard-block {
+  text-align: center;
+  padding: 40px 24px;
+  max-width: 580px;
+  animation: adb-card-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.adb-hard-domain {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 240, 200, 0.5);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+.adb-quote-mark {
+  font-size: 100px;
+  line-height: 0.8;
+  color: #f59e0b;
+  opacity: 0.25;
+  font-family: Georgia, "Times New Roman", serif;
+  margin-bottom: -10px;
+  display: block;
+}
+
+.adb-quote-text {
+  font-size: 30px;
+  font-weight: 800;
+  color: #f1f5f9;
+  line-height: 1.35;
+  margin-bottom: 16px;
+  letter-spacing: -0.02em;
+}
+
+.adb-quote-sub {
+  font-size: 14px;
+  color: rgba(255, 240, 200, 0.55);
+  margin-bottom: 44px;
+  line-height: 1.6;
+  margin-top: 16px !important;
+  margin-bottom: 16px !important;
+}
+
+.adb-btn-exit {
+  background: linear-gradient(
+    135deg,
+    #c2410c,
+    #ea580c
+  ); /* deep amber → orange */
+  color: #fff;
+  border: none;
+  border-radius: 16px;
+  padding: 12px 16px !important;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+
+  /* Softer, darker glow like screenshot */
+  box-shadow:
+    0 8px 25px rgba(234, 88, 12, 0.35),
+    0 2px 6px rgba(0, 0, 0, 0.4);
+
+  transition: all 0.2s ease;
+  margin: 20px 0 !important;
+}
+
+.adb-btn-exit:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 12px 35px rgba(234, 88, 12, 0.45),
+    0 4px 10px rgba(0, 0, 0, 0.5);
+}
+
+.adb-btn-exit:active {
+  transform: scale(0.97);
+}
+
+/* ── Binge indicator widget ── */
+#adb-binge-indicator {
+  position: fixed;
+  bottom: 24px;
+  left: 24px;
+  z-index: 2147483646;
+  background: linear-gradient(145deg, #2a2000, #1f1800);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 14px;
+  padding: 12px 14px;
+  min-width: 220px;
+  max-width: 260px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+  animation: adb-badge-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: border-color 0.3s;
+}
+
+#adb-binge-indicator.danger {
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+#adb-binge-indicator.critical {
+  border-color: rgba(239, 68, 68, 0.5);
+  animation:
+    adb-badge-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+    adb-critical-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes adb-critical-pulse {
+  0%,
+  100% {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  }
+  50% {
+    box-shadow: 0 8px 32px rgba(239, 68, 68, 0.25);
+  }
+}
+
+.adb-binge-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 9px;
+}
+
+.adb-binge-icon {
+  font-size: 14px;
+}
+
+.adb-binge-domain {
+  font-size: 12px;
+  font-weight: 700;
+  color: #f5f0e0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adb-binge-close {
+  font-size: 16px;
+  color: rgba(255, 240, 200, 0.4);
+  cursor: pointer;
+  line-height: 1;
+  transition: color 0.15s;
+  padding: 0 2px;
+}
+.adb-binge-close:hover {
+  color: rgba(255, 240, 200, 0.85);
+}
+
+.adb-binge-bar-wrap {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  height: 6px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.adb-binge-bar-fill {
+  height: 100%;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+  transition:
+    width 0.5s ease,
+    background 0.3s;
+}
+
+#adb-binge-indicator.danger .adb-binge-bar-fill {
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+}
+
+#adb-binge-indicator.critical .adb-binge-bar-fill {
+  background: linear-gradient(90deg, #ef4444, #f87171);
+}
+
+.adb-binge-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.adb-binge-used {
+  font-size: 11px;
+  color: rgba(255, 240, 200, 0.55);
+}
+
+.adb-binge-left {
+  font-size: 11px;
+  font-weight: 700;
+  color: #fde68a;
+}
+
+.adb-binge-left.red {
+  color: #f87171;
+}
+
+/* ── Unblock countdown on stage 3 ── */
+.adb-unblock-time {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fde68a;
+  margin-bottom: 32px;
+  margin-top: -8px;
+}
