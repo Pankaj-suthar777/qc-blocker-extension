@@ -554,7 +554,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === "STAGE_ADVANCE") {
-    advanceStage(tabId).then((stage) => sendResponse({ stage }));
+    advanceStage(tabId, msg.currentStage).then((stage) => sendResponse({ stage }));
     return true;
   }
 
@@ -670,11 +670,13 @@ async function handlePageClassify(tabId, msg) {
   return { stage: startStage, bingeStatus };
 }
 
-async function advanceStage(tabId) {
+async function advanceStage(tabId, currentStage) {
   const state = tabStates[tabId];
-  if (!state) return 0;
-  const next = Math.min(state.stage + 1, 3);
-  tabStates[tabId] = { stage: next, mode: state.mode };
+  // If service worker restarted, tabStates is empty — reconstruct from content's currentStage
+  const fromStage = state ? state.stage : (currentStage || 1);
+  const mode = state ? state.mode : 'both';
+  const next = Math.min(fromStage + 1, 3);
+  tabStates[tabId] = { stage: next, mode };
   if (next === 3) {
     await incrementStat("exited");
     // Persist the block so refreshes still show stage 3

@@ -183,7 +183,23 @@ async function init() {
     document.getElementById('quick-binge-btn').addEventListener('click', () => {
       document.getElementById('quick-binge-form').style.display = 'block';
       document.getElementById('quick-window-form').style.display = 'none';
+      // Filter minutes immediately on open
+      filterBingeMins();
     });
+
+    function filterBingeMins() {
+      const hrs = parseInt(document.getElementById('qb-window').value) || 1;
+      const maxMins = hrs * 60 - 10;
+      const minSel = document.getElementById('qb-mins');
+      const currentVal = parseInt(minSel.value) || 0;
+      Array.from(minSel.options).forEach(opt => {
+        opt.hidden = parseInt(opt.value) > maxMins;
+      });
+      if (currentVal > maxMins) minSel.value = String(maxMins);
+    }
+
+    // When rolling window changes, re-filter minute options
+    document.getElementById('qb-window').addEventListener('change', filterBingeMins);
 
     // Toggle window form
     document.getElementById('quick-window-btn').addEventListener('click', () => {
@@ -209,6 +225,10 @@ async function init() {
       document.getElementById('qb-status').textContent = '✓ Binge rule saved!';
       document.getElementById('qb-save').disabled = true;
       document.getElementById('quick-binge-btn').style.display = 'none';
+      // Re-classify current tab immediately
+      chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+        if (tabs[0]) chrome.tabs.sendMessage(tabs[0].id, { type: 'RECHECK' });
+      });
     });
 
     // Save to focus window
@@ -228,6 +248,10 @@ async function init() {
       document.getElementById('qw-status').textContent = '✓ Added to window!';
       document.getElementById('qw-save').disabled = true;
       document.getElementById('quick-window-btn').style.display = 'none';
+      // Re-classify current tab immediately
+      chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+        if (tabs[0]) chrome.tabs.sendMessage(tabs[0].id, { type: 'RECHECK' });
+      });
     });
   });
 

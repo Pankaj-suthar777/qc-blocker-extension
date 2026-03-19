@@ -448,7 +448,73 @@ async function renderDashboard(settings) {
   }
 }
 
-// ── Focus Windows ──
+// ── Chip input helper ──
+function initChipInput(wrap, initialDomains, disabled) {
+  wrap.innerHTML = '';
+  wrap.className = 'chip-input-wrap' + (disabled ? ' disabled' : '');
+
+  function cleanDomain(raw) {
+    return raw.trim().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '').toLowerCase();
+  }
+
+  function addChip(domain) {
+    const d = cleanDomain(domain);
+    if (!d) return;
+    if ([...wrap.querySelectorAll('.chip')].some(c => c.dataset.domain === d)) return;
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.dataset.domain = d;
+    chip.innerHTML = '<span class="chip-text">' + d + '</span>' +
+      (disabled ? '' : '<button class="chip-remove" tabindex="-1">&times;</button>');
+    if (!disabled) {
+      chip.querySelector('.chip-remove').addEventListener('click', () => {
+        chip.remove();
+        if (wrap._onChipChange) wrap._onChipChange();
+      });
+    }
+    wrap.insertBefore(chip, inp);
+  }
+
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.className = 'chip-text-input';
+  inp.placeholder = disabled ? '' : 'Add domain…';
+  inp.disabled = disabled;
+  wrap.appendChild(inp);
+
+  if (!disabled) {
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ',') {
+        e.preventDefault();
+        inp.value.split(',').forEach(v => addChip(v));
+        inp.value = '';
+        if (wrap._onChipChange) wrap._onChipChange();
+      } else if (e.key === 'Backspace' && inp.value === '') {
+        const chips = wrap.querySelectorAll('.chip');
+        if (chips.length) { chips[chips.length - 1].remove(); if (wrap._onChipChange) wrap._onChipChange(); }
+      }
+    });
+    inp.addEventListener('blur', () => {
+      if (inp.value.trim()) {
+        inp.value.split(',').forEach(v => addChip(v));
+        inp.value = '';
+        if (wrap._onChipChange) wrap._onChipChange();
+      }
+    });
+    inp.addEventListener('paste', e => {
+      e.preventDefault();
+      const text = (e.clipboardData || window.clipboardData).getData('text');
+      text.split(',').forEach(v => addChip(v));
+      if (wrap._onChipChange) wrap._onChipChange();
+    });
+  }
+
+  (initialDomains || []).forEach(d => addChip(d));
+}
+
+function getChipDomains(wrap) {
+  return [...wrap.querySelectorAll('.chip')].map(c => c.dataset.domain);
+}
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
 function renderWindows(windows, strict, pendingFW) {
@@ -478,9 +544,8 @@ function renderWindows(windows, strict, pendingFW) {
         '<input type="time" class="w-start input-inline"' + disabledAttr + ' value="' + w.start + '" />' +
         '<span class="time-sep">→</span>' +
         '<input type="time" class="w-end input-inline"' + disabledAttr + ' value="' + w.end + '" />' +
-        (locked ? '' : '<button class="btn-save-row">Save</button>') +
-        (locked ? '' : '<button class="btn-del-row" title="Remove">🗑</button>') +
         (locked ? '<button class="btn-save-row btn-queue-save">Queue Change</button>' : '') +
+        (locked ? '' : '<button class="btn-del-row" title="Remove">🗑</button>') +
       '</div>' +
       '<div class="window-row-days">' +
         DAY_NAMES.map((d, i) =>
@@ -491,18 +556,20 @@ function renderWindows(windows, strict, pendingFW) {
         ).join('') +
       '</div>' +
       '<div class="window-row-domains">' +
-        '<span class="window-domains-label">Block these sites (leave empty to block all distracting sites):</span>' +
-        '<input type="text" class="w-blocked-domains input-inline"' + disabledAttr + ' value="' + blockedDomains + '" placeholder="e.g. reddit.com, twitter.com" style="width:100%;margin-top:6px" />' +
+        '<span class="window-domains-label">Block these sites</span>' +
+        '<div class="chip-input-wrap" id="chip-wrap-' + idx + '"></div>' +
       '</div>' +
       (hasPending ? '<div class="strict-lock-msg">⏳ Change queued — applies when window ends</div>' : '') +
       (locked ? '<div class="strict-lock-msg">🔒 Strict mode — window is active, changes queued</div>' : '');
 
     container.appendChild(row);
 
+    // Initialize chip input for blocked domains
+    const chipWrap = row.querySelector('#chip-wrap-' + idx);
+    initChipInput(chipWrap, w.blockedDomains || [], locked);
+
     function collectWindowData() {
       const selectedDays = [...row.querySelectorAll('.w-day:checked')].map(el => parseInt(el.dataset.day));
-      const rawDomains = row.querySelector('.w-blocked-domains').value;
-      const domainList = rawDomains.split(',').map(d => d.trim().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '').toLowerCase()).filter(Boolean);
       return {
         id: w.id,
         enabled: row.querySelector('.w-enabled').checked,
@@ -510,22 +577,51 @@ function renderWindows(windows, strict, pendingFW) {
         start: row.querySelector('.w-start').value,
         end: row.querySelector('.w-end').value,
         days: selectedDays.length > 0 ? selectedDays : [0,1,2,3,4,5,6],
-        blockedDomains: domainList
+        blockedDomains: getChipDomains(chipWrap)
       };
     }
 
-    const saveBtn = row.querySelector('.btn-save-row:not(.btn-queue-save)');
-    if (saveBtn) {
-      saveBtn.addEventListener('click', async () => {
-        const s = await getSettings();
-        const wins = s.focusWindows || [];
-        wins[idx] = collectWindowData();
-        await setSetting('focusWindows', wins);
-        await setSetting('_userConfigured', true);
-        updateLiveStatus(wins);
-        showStatus('windows-status', 'Saved!');
-        renderWindows(wins, s.strictBlocking, s.pendingFocusWindowChanges);
-        renderDashboard(await getSettings());
+    async function autoSaveWindow() {
+      if (locked) return;
+      const s = await getSettings();
+      if (s.strictBlocking && isWindowActive(w)) return;
+      const wins = s.focusWindows || [];
+      wins[idx] = collectWindowData();
+      await setSetting('focusWindows', wins);
+      await setSetting('_userConfigured', true);
+      updateLiveStatus(wins);
+      renderDashboard(await getSettings());
+    }
+
+    // Auto-save on immediate inputs
+    if (!locked) {
+      row.querySelector('.w-enabled').addEventListener('change', autoSaveWindow);
+      row.querySelector('.w-start').addEventListener('change', autoSaveWindow);
+      row.querySelector('.w-end').addEventListener('change', autoSaveWindow);
+
+      // Debounce label input
+      let labelTimer;
+      row.querySelector('.w-label').addEventListener('input', () => {
+        clearTimeout(labelTimer);
+        labelTimer = setTimeout(autoSaveWindow, 600);
+      });
+
+      // Day pills
+      row.querySelectorAll('.w-day').forEach(cb => {
+        cb.addEventListener('change', () => {
+          cb.closest('.day-pill').classList.toggle('active', cb.checked);
+          autoSaveWindow();
+        });
+      });
+
+      // Chip add/remove triggers auto-save
+      chipWrap._onChipChange = autoSaveWindow;
+    } else {
+      // Day pill visual toggle only when locked
+      row.querySelectorAll('.w-day').forEach(cb => {
+        cb.addEventListener('change', () => {
+          cb.closest('.day-pill').classList.toggle('active', cb.checked);
+        });
       });
     }
 
@@ -641,7 +737,6 @@ function renderBingeRules(rules, usage, strict, pending) {
         '</div>' +
       '</div>' +
       '<div class="binge-rule-actions">' +
-        '<button class="btn-save-row">Save</button>' +
         (locked ? '' : '<button class="btn-del-row" title="Remove">🗑 Delete</button>') +
       '</div>' +
       '<div class="binge-usage-bar"><div class="binge-usage-fill ' + (blocked ? 'red' : pct >= 0.75 ? 'amber' : '') + '" style="width:' + Math.round(pct * 100) + '%"></div></div>' +
@@ -655,7 +750,7 @@ function renderBingeRules(rules, usage, strict, pending) {
 
     container.appendChild(row);
 
-    // When window hours changes, rebuild minute options to only show valid values
+    // When window hours changes, rebuild minute options
     const windowSel = row.querySelector('.br-window');
     const minSel = row.querySelector('.br-limit-m');
     if (windowSel && minSel) {
@@ -670,19 +765,16 @@ function renderBingeRules(rules, usage, strict, pending) {
       });
     }
 
-    row.querySelector('.btn-save-row').addEventListener('click', async () => {
+    async function autoSaveBinge() {
+      if (locked) return;
       const s = await getSettings();
       const rs = s.bingeRules || [];
       const lm = parseInt(row.querySelector('.br-limit-m').value) || 0;
       const ls_sec = parseInt(row.querySelector('.br-limit-s').value) || 0;
       const ls = lm * 60 + ls_sec;
       const hrs = parseInt(row.querySelector('.br-window').value) || 1;
-      const maxSecs = hrs * 3600 - 600; // 10 min buffer
-      if (ls <= 0) { showStatus('binge-status', 'Limit must be > 0', true); return; }
-      if (ls > maxSecs) {
-        showStatus('binge-status', 'Limit cannot exceed ' + (hrs * 60 - 10) + ' min for a ' + hrs + 'h window (10 min buffer reserved).', true);
-        return;
-      }
+      const maxSecs = hrs * 3600 - 600;
+      if (ls <= 0 || ls > maxSecs) return; // silent — invalid state, don't save
       const updated = {
         id: rule.id,
         enabled: row.querySelector('.br-enabled').checked,
@@ -690,23 +782,37 @@ function renderBingeRules(rules, usage, strict, pending) {
         limitSecs: ls,
         windowHours: hrs
       };
+      if (!updated.domain) return;
 
       if (s.strictBlocking && blocked) {
-        // Queue the change — apply after block expires
         const p = s.pendingBingeRules || {};
         p[rule.domain] = { action: 'update', rule: updated };
         await setSetting('pendingBingeRules', p);
-        showStatus('binge-status', 'Strict mode: change queued — will apply when block expires.');
         renderBingeRules(rs, s.bingeUsage, s.strictBlocking, p);
       } else {
         rs[idx] = updated;
         await setSetting('bingeRules', rs);
         await setSetting('_userConfigured', true);
-        showStatus('binge-status', 'Saved!');
-        renderBingeRules(rs, s.bingeUsage, s.strictBlocking, s.pendingBingeRules);
         renderDashboard(await getSettings());
       }
-    });
+    }
+
+    if (!locked) {
+      // Immediate save on selects and toggle
+      row.querySelector('.br-enabled').addEventListener('change', autoSaveBinge);
+      row.querySelector('.br-limit-m').addEventListener('change', autoSaveBinge);
+      row.querySelector('.br-limit-s').addEventListener('change', autoSaveBinge);
+      row.querySelector('.br-window').addEventListener('change', () => {
+        // Rebuild mins first, then save
+        setTimeout(autoSaveBinge, 0);
+      });
+      // Debounce domain input
+      let domainTimer;
+      row.querySelector('.br-domain').addEventListener('input', () => {
+        clearTimeout(domainTimer);
+        domainTimer = setTimeout(autoSaveBinge, 700);
+      });
+    }
 
     const delBtn = row.querySelector('.btn-del-row');
     if (delBtn) {

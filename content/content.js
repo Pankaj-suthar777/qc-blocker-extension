@@ -284,10 +284,13 @@ function goBack() {
   history.back();
 }
 
+var currentStage = 0; // track locally so we can recover if service worker restarts
+
 function showStage(stage, bingeStatus) {
   removeOverlay();
   removeCountdownBadge();
   if (stage === 0) return;
+  currentStage = stage;
   var themeClass = currentTheme && currentTheme !== 'default' ? 'adb-theme-' + currentTheme : '';
 
   if (stage === 1) {
@@ -309,7 +312,7 @@ function showStage(stage, bingeStatus) {
     document.getElementById("adb-continue").addEventListener("click", function () {
       removeOverlay();
       showCountdownBadge(20, function () {
-        safeSend({ type: "STAGE_ADVANCE" }, function (res) {
+        safeSend({ type: "STAGE_ADVANCE", currentStage: currentStage }, function (res) {
           if (res && res.stage > 0) showStage(res.stage);
         });
       });
@@ -333,7 +336,7 @@ function showStage(stage, bingeStatus) {
     document.getElementById("adb-continue").addEventListener("click", function () {
       removeOverlay();
       showCountdownBadge(20, function () {
-        safeSend({ type: "STAGE_ADVANCE" }, function (res) {
+        safeSend({ type: "STAGE_ADVANCE", currentStage: currentStage }, function (res) {
           if (res && res.stage > 0) showStage(res.stage);
         });
       });
@@ -492,7 +495,17 @@ function classifyCurrentPage() {
   });
 }
 
-// ── SPA navigation ──
+// Listen for recheck request from popup (after quick-add binge/window rule)
+chrome.runtime.onMessage.addListener(function (msg) {
+  if (msg.type === 'RECHECK') {
+    removeOverlay();
+    removeCountdownBadge();
+    removeBingeIndicator();
+    stopBingeHeartbeat();
+    document.body.style.overflow = '';
+    setTimeout(classifyCurrentPage, 100);
+  }
+});
 var lastUrl = location.href;
 (function () {
   var wrap = function (method) {

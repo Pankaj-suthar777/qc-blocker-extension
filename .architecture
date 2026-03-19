@@ -20,10 +20,10 @@ qc-blocker/
 │   └── overlay.css            # In-page UI with CSS variable theming
 ├── popup/
 │   ├── popup.html             # Toolbar popup markup
-│   ├── popup.js               # Status, stats, focus windows
+│   ├── popup.js               # Status, stats, focus windows, quick-block form
 │   └── popup.css              # Popup styles
 ├── options/
-│   ├── options.html           # Full settings page
+│   ├── options.html           # Full settings page (7 sections with how-to guides)
 │   ├── options.js             # All settings logic — charts, rules, whitelist, theme
 │   └── options.css            # Settings styles
 └── icons/
@@ -41,9 +41,9 @@ qc-blocker/
   - chrome.storage.local     — all settings and stats
   - chrome.alarms            — minute tick for pending changes + block expiry cleanup
   - chrome.notifications     — binge warning at 80% threshold
-  - chrome.tabs              — tab lifecycle and cleanup
+  - chrome.tabs              — tab lifecycle + popup→content messaging
 - Web Audio API             — alert sounds (gated behind user gesture)
-- Pure SVG                  — all charts (bar, sparkline, donut, radial arcs)
+- Pure SVG                  — all charts (bar, sparkline, donut, radial arcs), no libraries
 
 ---
 
@@ -64,33 +64,42 @@ qc-blocker/
 
 Owns all decision logic, storage reads/writes, and in-memory state.
 
-Key responsibilities:
-- Storage schema + defaults + migration
+Key functions:
 - `isWindowActiveNow(w)` — checks time range AND day of week
-- `getBlockingWindow(url, focusWindows)` — finds the active window that should block this URL,
-  respecting per-window `blockedDomains`. Empty list = window blocks nothing automatically.
-- `isWhitelisted()` — hostname-level whitelist check
-- `isPathWhitelisted()` — path-prefix whitelist (e.g. reddit.com/r/MachineLearning)
+- `getBlockingWindow(url, focusWindows)` — finds the active window that should block this URL
+  respecting per-window `blockedDomains`. Empty list = window blocks nothing.
+- `isWhitelisted(url, whitelist)` — hostname-level whitelist check
+- `isPathWhitelisted(url, pathWhitelist)` — path-prefix whitelist (e.g. reddit.com/r/ML)
 - `getBingeStatus(domain)` — reads stored + in-memory usage, applies 10-min buffer,
   returns {usedSecs, limitSecs, blocked, unblockAt}
 - `recordBingeSeconds(domain, secs)` — accumulates in memory, flushes to storage every 5s
-- `setEscalationBlock(domain)` — persists stage-3 block keyed by domain until focus window ends
+- `setEscalationBlock(domain)` — persists stage-3 block until focus window ends
 - `isEscalationBlocked(domain)` — checks if domain has an active persisted block
+- `clearEscalationBlock(domain)` — removes block when user clicks "Leave This Website"
 - `handlePageClassify(tabId, msg)` — main decision pipeline (see Data Flow)
 - `advanceStage(tabId)` — increments stage 1→2→3, persists escalation block at stage 3
-- Alarm tick (every 60s):
-  - Apply pending binge rule changes (strict mode, when block expires)
-  - Apply pending focus window changes (strict mode, when window ends)
-  - Clean up expired escalation blocks
+
+Alarm tick (every 60s):
+- Apply pending binge rule changes (strict mode, when block expires)
+- Apply pending focus window changes (strict mode, when window ends)
+- Clean up expired escalation blocks
+
+Message handlers:
+- CLASSIFY_PAGE, STAGE_ADVANCE, STAGE_RESET, CLEAR_ESCALATION_BLOCK
+- BINGE_HEARTBEAT, GET_BINGE_STATUS
+- PAUSE_BLOCKING, RESUME_BLOCKING, GET_PAUSE_STATUS
+- SET_STRICT_BLOCKING, GET_STRICT_STATUS
+- QUEUE_BINGE_CHANGE, QUEUE_FOCUS_WINDOW_CHANGE
+- STAT_INCREMENT, ALLOW_ONCE
 
 ### content/content.js — The UI Layer
 
-Injected into every page. Communicates with worker via chrome.runtime.sendMessage
-wrapped in `safeSend()` which guards against invalidated extension context.
+Injected into every page. All chrome.runtime.sendMessage calls wrapped in `safeSend()`
+which guards against invalidated extension context errors.
 
 Key responsibilities:
 - `classifyCurrentPage()` — sends CLASSIFY_PAGE with URL + title + meta
-- `showStage(stage)` — renders the correct overlay:
+- `showStage(stage, bingeStatus)` — renders the correct overlay:
     Stage 0  no overlay
     Stage 1  "Focus Check" — Go back / Continue anyway
     Stage 2  "Last Warning" — Go back / I'll take the risk
@@ -99,45 +108,55 @@ Key responsibilities:
   updated in-place every second (no DOM flicker)
 - `startBingeHeartbeat(url)` — sends BINGE_HEARTBEAT every 1s; triggers stage 3
   within 1s of limit being hit
+- RECHECK message listener — clears overlay and re-runs classifyCurrentPage() after 100ms
+  (used by popup quick-block to apply rules immediately)
 - Theme applied via class on overlay element (adb-theme-midnight etc.)
 - SPA navigation — patches history.pushState/replaceState + popstate
 - Doomscroll detection — rapid scroll bursts re-trigger classify
 - Keyboard shortcut — Escape dismisses stage 1/2
 
-### popup/popup.js — Quick Status
+### popup/popup.js — Quick Status + Quick Block
 
-Shows current blocking status, today's stats, and focus windows list.
-No pause button — blocking cannot be bypassed from the popup.
+Shows current blocking status, today's stats, focus windows list, and binge usage
+for the current tab.
+
+Quick Block section (shown for any http site):
+- "⏱ Binge Guard" — inline form: block after (min + sec dropdowns), rolling window
+  Minute options filtered to valid range (windowHours × 60 - 10) on open and on change
+- "🪟 Focus Window" — inline form: select which window to add domain to
+- Both save to chrome.storage.local and send RECHECK to the active tab immediately
+- Buttons hidden if domain is already configured in that rule type
 
 ### options/options.js — Full Settings
 
 7-section settings page with sidebar navigation.
+`chrome.storage.onChanged` drives all re-renders (150ms debounce) — no polling.
 
 Sections:
-- Dashboard      — stat cards, strict blocking toggle, focus score, donut chart,
-                   30-day sparkline, weekly SVG bar chart, windows + binge radials
-- Focus Windows  — add/edit/delete windows with time range, day picker, blocked domains
-- Binge Guard    — add/edit/delete rules with dropdown selects (min/sec/hr),
-                   how-to guide, strict mode toggle
+- Dashboard      — 4 stat cards (interventions, minutes, exited, strict toggle),
+                   focus score + streak, donut chart, 30-day sparkline,
+                   weekly SVG bar chart, windows summary, binge radial arcs
+- Focus Windows  — add/edit/delete with time range, day picker, blocked domains list,
+                   strict mode queuing when window is active
+- Binge Guard    — add/edit/delete with dropdown selects (min/sec/hr),
+                   how-to guide, strict mode toggle + queuing when blocked
 - Intervention   — Hard Block or Escalating mode
-- Whitelist      — domain and path-level entries
-- Theme          — 5 themes with live preview
-- Settings       — export/import JSON, reset stats, copy debug info
-
-`chrome.storage.onChanged` drives all re-renders (150ms debounce) — no polling.
+- Whitelist      — domain and path-level entries, blocked-site protection
+- Theme          — 5 themes with live preview on radio change
+- Settings       — export/import JSON, reset stats, copy debug info, donation links
 
 ---
 
 ## Data Flow
 
 ```
-Page loads
+User visits a page
   └─► content.js: classifyCurrentPage()
         └─► [CLASSIFY_PAGE] ──► worker.js: handlePageClassify()
                 ├─ isPathWhitelisted()      → exempt? → stage 0
                 ├─ isWhitelisted()          → exempt? → stage 0
                 ├─ getBingeStatus()         → blocked? → stage 3
-                ├─ isEscalationBlocked()    → blocked? → stage 3
+                ├─ isEscalationBlocked()    → blocked? → stage 3 (persisted)
                 ├─ allowedOnceTabs?         → stage 0
                 ├─ pauseUntil > now?        → stage 0
                 ├─ getBlockingWindow()      → no active window? → stage 0
@@ -152,18 +171,24 @@ Page loads
                 │     "Continue" → 20s countdown → STAGE_ADVANCE → stage 2
                 ├─ stage 2: Last Warning
                 │     "Continue" → 20s countdown → STAGE_ADVANCE → stage 3
-                │           └─► worker: setEscalationBlock(domain)
+                │           └─► worker: setEscalationBlock(domain, focusWindows)
                 └─ stage 3: Hard block
                       "Leave" → CLEAR_ESCALATION_BLOCK → history.back()
 
-Every 1s while on a blocked domain:
-  content.js: [BINGE_HEARTBEAT] ──► worker: recordBingeSeconds(domain, 1)
-                                        └─► getBingeStatus() → blocked? → push stage 3
-                                        (storage flush every 5s via setTimeout)
+Every 1s while on a tracked domain:
+  content.js → [BINGE_HEARTBEAT] → worker: recordBingeSeconds(domain, 1)
+    → in-memory accumulator (flushes to storage every 5s)
+    → getBingeStatus() → blocked? → push stage 3 immediately
+
+Quick-block from popup:
+  popup.js saves rule to storage
+  → chrome.tabs.sendMessage(tab.id, { type: 'RECHECK' })
+  → content.js: removeOverlay() + classifyCurrentPage() after 100ms
 
 Every 60s (chrome.alarms):
-  worker: clean expired escalation blocks
-          apply pending strict-mode changes (binge rules + focus windows)
+  → clean expired escalation blocks
+  → apply pending strict-mode binge rule changes (when block expires)
+  → apply pending strict-mode focus window changes (when window ends)
 ```
 
 ---
@@ -208,25 +233,41 @@ Block expires when the active focus window ends.
 - Effective limit = `limitSecs` capped at `windowHours × 3600 - 600` (10-min buffer)
 - At 80% usage → chrome notification fires once per session
 - At 100% → hard block; `unblockAt` calculated from oldest entry that would drop usage below limit
+- Binge-only sites (not in any focus window block list) get silent timer only — no overlay popup
 
 ---
 
 ## Strict Blocking
 
 When enabled:
-- Binge rules: save/delete/reset are locked while domain is blocked → changes queued in `pendingBingeRules`
-- Focus windows: save/delete locked while window is active → changes queued in `pendingFocusWindowChanges`
+- Binge rules: save/delete/reset locked while domain is blocked → queued in `pendingBingeRules`
+- Focus windows: save/delete locked while window is active → queued in `pendingFocusWindowChanges`
 - Alarm tick applies queued changes once the block/window expires
 - Adding new rules is always allowed
 - Toggle visible on Dashboard (always accessible) and in Binge Guard settings
+- Both toggles are synced — changing one updates the other
 
 ---
 
 ## Theming
 
 All colours in `overlay.css`, `options.css`, and `popup.css` use CSS variables.
-Theme classes (`adb-theme-midnight` etc.) are applied to:
-- `#adb-overlay` and `#adb-binge-indicator` in content scripts
+Theme classes (`adb-theme-midnight` etc.) applied to:
+- `#adb-overlay` and `#adb-binge-indicator` in content scripts (loaded from storage on page load)
 - `document.documentElement` in options and popup pages
 
-Live preview in Settings → Theme (no save needed to preview).
+Live preview in Settings → Theme — radio change applies class instantly, no save needed to preview.
+
+---
+
+## Quick Block (Popup)
+
+When the popup opens on any http site:
+1. Checks if domain is already in binge rules and/or focus windows
+2. Shows "Block This Site" section with domain name
+3. Hides buttons for rule types already configured
+4. Binge form: min/sec/hr dropdowns matching settings page exactly,
+   minute options filtered to valid range (windowHours × 60 - 10) on open and on change
+5. Window form: dropdown of all configured focus windows
+6. On save: writes to storage + sends RECHECK to active tab
+7. Content script receives RECHECK → clears overlay → re-classifies after 100ms
