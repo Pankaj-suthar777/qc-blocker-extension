@@ -1,0 +1,224 @@
+# AI Distraction Blocker — Architecture
+
+## What It Does
+
+A Manifest V3 Chrome extension that detects and blocks distracting websites during
+configurable focus hours. Uses rule-based classification first, then falls back to an
+AI API (Claude Sonnet 4.6 via unlimitedclaude.com) for ambiguous URLs. Tracks binge
+usage per domain and escalates interventions from soft warnings to hard blocks.
+
+---
+
+## Project Structure
+
+```
+ai-distraction-blocker/
+├── manifest.json              # MV3 extension config — declares permissions, scripts, icons
+├── background/
+│   └── worker.js              # Service worker — core classification + storage logic
+├── content/
+│   ├── content.js             # Injected into every page — renders overlays, tracks scrolling
+│   └── overlay.css            # Styles for all in-page overlay UI
+├── popup/
+│   ├── popup.html             # Toolbar popup markup
+│   ├── popup.js               # Popup logic — status, stats, quick actions
+│   └── popup.css              # Popup styles
+├── options/
+│   ├── options.html           # Full settings page markup
+│   ├── options.js             # Settings logic — 6 sections, charts, import/export
+│   └── options.css            # Settings styles
+└── icons/
+    ├── icon16.png
+    ├── icon48.png
+    └── icon128.png
+```
+
+---
+
+## Tech Stack
+
+- Vanilla JS — no frameworks, no build step, runs directly in the browser
+- Chrome Extensions API (Manifest V3)
+  - chrome.storage.local     — persistent settings and stats
+  - chrome.alarms            — minute-tick for stat tracking
+  - chrome.notifications     — binge warnings
+  - chrome.tabs / webNavigation — tab lifecycle and SPA navigation
+- Web Audio API — alert sounds on overlay display
+- External API — POST https://api.unlimitedclaude.com/v1/chat/completions
+  - Model: claude-sonnet-4.6
+  - Used only for ambiguous URLs that rule-based logic can't classify
+
+---
+
+## Entry Points
+
+| File                  | Trigger                                              |
+|-----------------------|------------------------------------------------------|
+| background/worker.js  | Registered as service worker; starts on browser open |
+| content/content.js    | Injected at document_idle on every page load         |
+| popup/popup.html      | Opened when user clicks the extension icon           |
+| options/options.html  | Opened via chrome.runtime.openOptionsPage()          |
+
+---
+
+## Component Breakdown
+
+### background/worker.js — The Brain
+Runs as a persistent service worker. Owns all decision logic and storage.
+
+Key responsibilities:
+- DEFAULTS / storage schema — initializes settings on first install
+- Migration — converts legacy blockTime format to focusWindows array
+- isInAnyFocusWindow()     — checks if current time is inside an enabled focus window
+- isWhitelisted()          — matches hostname against user's whitelist
+- ruleBasedClassify()      — hardcoded ~20 distracting domains; special YouTube logic:
+                              homepage/shorts = distracting, /watch?v= = productive
+- classifyWithAI()         — POSTs URL + title + meta + body excerpt to the AI API;
+                              expects { classification, reason } back
+- handlePageClassify()     — main decision pipeline (see Data Flow below)
+- advanceStage()           — escalates intervention stage per tab (1 → 2 → 3)
+- getBingeStatus()         — sliding window check: sums usage entries within windowHours
+- recordBingeSeconds()     — appends timestamped usage entry for a domain
+- adb-minute-tick alarm    — fires every 60s; increments distractingMinutes stat
+                              for all currently-distracting tabs
+- Tab cleanup              — clears per-tab state on tab close or navigation away
+
+### content/content.js — The UI Layer
+Injected into every page. Communicates with the worker via chrome.runtime.sendMessage.
+
+Key responsibilities:
+- classifyCurrentPage()    — sends CLASSIFY_PAGE with page metadata; calls showStage()
+- showStage(stage)         — renders the correct overlay:
+    Stage 0  no overlay (productive / whitelisted / outside hours)
+    Stage 1  "Focus Check" — soft warning; Go Back / Snooze 5min / Allow Once / Continue
+    Stage 2  "Last Warning" — same options, escalated tone
+    Stage 3  Full-page hard block — dark screen, motivational quote, Leave button,
+             live countdown timer if binge-blocked
+- showCountdownBadge()     — floating SVG ring countdown (20s) between stage transitions
+- showBingeIndicator()     — persistent bottom-left widget: domain usage bar + time left
+- startBingeHeartbeat()    — sends BINGE_HEARTBEAT every 30s to record usage;
+                             triggers stage 3 if binge limit is reached mid-session
+- SPA navigation           — patches history.pushState/replaceState + popstate listener
+                             to re-classify on client-side URL changes
+- Doomscroll detection     — tracks scroll velocity; 10+ rapid bursts re-trigger classify
+- Keyboard shortcut        — Escape dismisses stage 1/2 overlays
+
+### popup/popup.js — Quick Actions
+Shown when user clicks the toolbar icon.
+
+Displays:
+- Status badge: Blocking Active / Outside Hours / Paused / Site Blocked
+- Today's stats: interventions, wasted minutes, exits
+- Focus windows list with active/inactive indicators
+- Binge usage bar for the current tab's domain
+- Pause 30min / Resume toggle
+- Whitelist current site button
+- Link to full settings page
+
+### options/options.js — Full Settings
+6-section settings page with sidebar navigation.
+
+Sections:
+- Dashboard      — hero stats, focus score (% of interventions where user exited),
+                   day streak, weekly bar chart, daily breakdown table
+- Focus Windows  — add/edit/delete time windows (label, start, end, enabled toggle)
+- Binge Guard    — add/edit/delete per-domain rules (limit in min/sec, rolling window hours);
+                   shows live usage bar per rule
+- Intervention   — choose mode: Soft Nudge / Hard Block / Escalating (default)
+- Whitelist      — add/remove always-allowed domains
+- API Key        — save UnlimitedClaude API key (stored locally, never sent elsewhere)
+
+Also handles: export/import settings as JSON, reset stats, copy debug info.
+
+---
+
+## Data Flow
+
+```
+Page loads
+  └─► content.js: classifyCurrentPage()
+        └─► [CLASSIFY_PAGE msg] ──► worker.js: handlePageClassify()
+                ├─ getBingeStatus()        → blocked?  → return stage 3
+                ├─ allowedOnceTabs?        → allowed?  → return stage 0
+                ├─ pauseUntil > now?       → paused?   → return stage 0
+                ├─ isInAnyFocusWindow()    → outside?  → return stage 0
+                ├─ isWhitelisted()         → listed?   → return stage 0
+                ├─ ruleBasedClassify()     → productive → return stage 0
+                │                         → distracting → return stage 1 (or 3 if hard mode)
+                │                         → null (ambiguous)
+                └─ classifyWithAI()        → productive → return stage 0
+                                           → distracting → return stage 1 (or 3 if hard mode)
+        └─► content.js: showStage(stage)
+                ├─ stage 1: Focus Check overlay
+                │     └─ "Continue" clicked → 20s countdown badge
+                │           └─► [STAGE_ADVANCE] → worker returns stage 2
+                ├─ stage 2: Last Warning overlay
+                │     └─ "Continue" clicked → 20s countdown badge
+                │           └─► [STAGE_ADVANCE] → worker returns stage 3
+                └─ stage 3: Hard block (no escape unless binge countdown expires)
+
+Every 30s while on a distracting page:
+  content.js: [BINGE_HEARTBEAT] ──► worker.js: recordBingeSeconds()
+                                          └─► getBingeStatus() → blocked? → push stage 3
+
+Every 60s (chrome.alarms):
+  worker.js: count tabs currently in distracting state → increment distractingMinutes stat
+```
+
+---
+
+## Storage Schema (chrome.storage.local)
+
+| Key              | Type     | Description                                              |
+|------------------|----------|----------------------------------------------------------|
+| apiKey           | string   | UnlimitedClaude API key (optional)                       |
+| focusWindows     | array    | [{id, enabled, label, start, end}]                       |
+| interventionMode | string   | "soft" / "hard" / "both" (escalating)                    |
+| whitelist        | string[] | Always-allowed hostnames                                 |
+| bingeRules       | array    | [{id, enabled, domain, limitSecs, windowHours}]          |
+| bingeUsage       | object   | {domain: [{ts, secs}]} — rolling timestamped usage log   |
+| stats            | object   | {"YYYY-MM-DD": {distractingMinutes, interventions, exited}} |
+| pauseUntil       | number   | Unix ms timestamp; blocking disabled until this time     |
+| _userConfigured  | bool     | Prevents overwriting user settings with defaults         |
+
+---
+
+## AI Classification
+
+Only triggered when ruleBasedClassify() returns null (ambiguous URLs — e.g. YouTube
+playlists, channels, search results, unknown domains).
+
+Request:
+  POST https://api.unlimitedclaude.com/v1/chat/completions
+  Authorization: Bearer <apiKey>
+  {
+    model: "claude-sonnet-4.6",
+    max_tokens: 100,
+    system: "You are a productivity assistant...",
+    messages: [{ role: "user", content: "<url> <title> <meta> <body excerpt>" }]
+  }
+
+Expected response:
+  { classification: "productive" | "distracting", reason: "..." }
+
+The extension works fully without an API key — AI classification is skipped and
+ambiguous URLs are treated as productive (not blocked).
+
+---
+
+## Intervention Modes
+
+| Mode                  | Behavior                                              |
+|-----------------------|-------------------------------------------------------|
+| Soft Nudge            | Stage 1 only — easy to dismiss                        |
+| Hard Block            | Jumps straight to stage 3 — no escape                 |
+| Escalating (default)  | Stage 1 → 20s → Stage 2 → 20s → Stage 3              |
+
+---
+
+## Binge Guard
+
+Tracks time spent on a domain within a rolling time window (e.g. 30 min in last 2 hours).
+Usage is stored as timestamped entries in bingeUsage. On each BINGE_HEARTBEAT (every 30s),
+entries older than windowHours are pruned and remaining seconds are summed. If the sum
+exceeds limitSecs, the tab is hard-blocked with a countdown showing when the window resets.

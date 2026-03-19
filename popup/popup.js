@@ -1,11 +1,12 @@
 const DEFAULTS = {
-  apiKey: "",
-  focusWindows: [{ id: "1", enabled: true, start: "09:00", end: "17:00", label: "Work" }],
+  focusWindows: [{ id: "1", enabled: true, start: "09:00", end: "17:00", label: "Work", days: [1,2,3,4,5], blockedDomains: [] }],
   interventionMode: "both",
   whitelist: ["github.com", "stackoverflow.com", "docs.google.com", "notion.so", "figma.com"],
+  pathWhitelist: [],
   bingeRules: [],
   stats: {},
   pauseUntil: 0,
+  theme: 'default',
   _userConfigured: false
 };
 
@@ -36,6 +37,13 @@ function isWindowActive(w) {
 
 async function init() {
   const settings = await getSettings();
+
+  // Apply theme
+  const theme = settings.theme || 'default';
+  document.documentElement.className = document.documentElement.className
+    .replace(/adb-theme-\S+/g, '').trim();
+  if (theme !== 'default') document.documentElement.classList.add('adb-theme-' + theme);
+
   const today = new Date().toISOString().slice(0, 10);
   const stats = (settings.stats || {})[today] || { distractingMinutes: 0, interventions: 0, exited: 0 };
 
@@ -173,31 +181,6 @@ async function init() {
         left.classList.remove('red');
       });
     });
-  });
-
-  // Whitelist quick action
-  chrome.tabs.query({ active: true, currentWindow: true }, async tabs => {
-    const tab = tabs[0];
-    if (!tab || !tab.url || !tab.url.startsWith('http')) return;
-    let domain;
-    try { domain = new URL(tab.url).hostname.replace(/^www\./, ''); } catch { return; }
-    const { whitelist } = await getSettings();
-    const btn = document.getElementById('whitelist-btn');
-    const lbl = document.getElementById('whitelist-btn-label');
-    if (!whitelist.includes(domain)) {
-      lbl.textContent = 'Whitelist ' + domain;
-      btn.style.display = 'flex';
-      btn.addEventListener('click', async () => {
-        const s = await getSettings();
-        const wl = s.whitelist || [];
-        if (!wl.includes(domain)) {
-          wl.push(domain);
-          await new Promise(r => chrome.storage.local.set({ whitelist: wl }, r));
-        }
-        lbl.textContent = '✓ Whitelisted';
-        btn.disabled = true;
-      });
-    }
   });
 
   // Buttons

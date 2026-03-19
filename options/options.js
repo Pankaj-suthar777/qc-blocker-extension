@@ -1,12 +1,17 @@
 // AI Distraction Blocker — Options v4
 
 const DEFAULTS = {
-  apiKey: "",
-  focusWindows: [{ id: "1", enabled: true, start: "09:00", end: "17:00", label: "Work" }],
+  focusWindows: [{ id: "1", enabled: true, start: "09:00", end: "17:00", label: "Work", days: [1,2,3,4,5], blockedDomains: [] }],
   interventionMode: "both",
   whitelist: ["github.com", "stackoverflow.com", "docs.google.com", "notion.so", "figma.com"],
+  pathWhitelist: [],
   bingeRules: [],
   bingeUsage: {},
+  strictBlocking: false,
+  pendingBingeRules: {},
+  pendingFocusWindowChanges: {},
+  escalationBlocks: {},
+  theme: 'default',
   stats: {},
   pauseUntil: 0,
   _userConfigured: false
@@ -27,6 +32,9 @@ function uid() {
 function isWindowActive(w) {
   if (!w.enabled) return false;
   const now = new Date();
+  const day = now.getDay();
+  const days = w.days && w.days.length > 0 ? w.days : [0,1,2,3,4,5,6];
+  if (!days.includes(day)) return false;
   const nowMins = now.getHours() * 60 + now.getMinutes();
   const [sh, sm] = w.start.split(':').map(Number);
   const [eh, em] = w.end.split(':').map(Number);
@@ -35,6 +43,19 @@ function isWindowActive(w) {
 
 function isInAnyWindow(windows) {
   return (windows || []).some(isWindowActive);
+}
+
+function isDomainBlocked(domain, settings) {
+  const rules = settings.bingeRules || [];
+  const usage = settings.bingeUsage || {};
+  const rule = rules.find(r => r.enabled && (domain === r.domain || domain.startsWith(r.domain)));
+  if (!rule) return false;
+  const limitSecs = rule.limitSecs || (rule.limitMins || 5) * 60;
+  const cutoff = Date.now() - rule.windowHours * 3600 * 1000;
+  const usedSecs = (usage[rule.domain] || [])
+    .filter(e => e.ts > cutoff)
+    .reduce((s, e) => s + (e.secs || (e.mins || 0) * 60), 0);
+  return usedSecs >= limitSecs;
 }
 
 function secsToDisplay(secs) {
@@ -245,7 +266,9 @@ async function renderDashboard(settings) {
 }
 
 // ── Focus Windows ──
-function renderWindows(windows) {
+const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+function renderWindows(windows, strict, pendingFW) {
   const container = document.getElementById('windows-list');
   container.innerHTML = '';
   if (!windows || windows.length === 0) {
@@ -253,52 +276,121 @@ function renderWindows(windows) {
     return;
   }
   windows.forEach((w, idx) => {
+    const active = isWindowActive(w);
+    const locked = strict && active;
+    const hasPending = pendingFW && pendingFW[w.id];
+    const disabledAttr = locked ? ' disabled' : '';
+    const days = w.days && w.days.length > 0 ? w.days : [0,1,2,3,4,5,6];
+    const blockedDomains = (w.blockedDomains || []).join(', ');
+
     const row = document.createElement('div');
-    row.className = 'window-row';
+    row.className = 'window-row' + (locked ? ' strict-locked' : '');
     row.innerHTML =
-      '<label class="switch">' +
-        '<input type="checkbox" class="w-enabled" ' + (w.enabled ? 'checked' : '') + '/>' +
-        '<span class="slider"></span>' +
-      '</label>' +
-      '<input type="text" class="w-label input-inline" value="' + (w.label || 'Focus') + '" placeholder="Label" maxlength="16" />' +
-      '<input type="time" class="w-start input-inline" value="' + w.start + '" />' +
-      '<span class="time-sep">→</span>' +
-      '<input type="time" class="w-end input-inline" value="' + w.end + '" />' +
-      '<button class="btn-save-row">Save</button>' +
-      '<button class="btn-del-row" title="Remove">🗑</button>';
+      '<div class="window-row-top">' +
+        '<label class="switch">' +
+          '<input type="checkbox" class="w-enabled"' + disabledAttr + (w.enabled ? ' checked' : '') + '/>' +
+          '<span class="slider"></span>' +
+        '</label>' +
+        '<input type="text" class="w-label input-inline"' + disabledAttr + ' value="' + (w.label || 'Focus') + '" placeholder="Label" maxlength="16" />' +
+        '<input type="time" class="w-start input-inline"' + disabledAttr + ' value="' + w.start + '" />' +
+        '<span class="time-sep">→</span>' +
+        '<input type="time" class="w-end input-inline"' + disabledAttr + ' value="' + w.end + '" />' +
+        (locked ? '' : '<button class="btn-save-row">Save</button>') +
+        (locked ? '' : '<button class="btn-del-row" title="Remove">🗑</button>') +
+        (locked ? '<button class="btn-save-row btn-queue-save">Queue Change</button>' : '') +
+      '</div>' +
+      '<div class="window-row-days">' +
+        DAY_NAMES.map((d, i) =>
+          '<label class="day-pill' + (days.includes(i) ? ' active' : '') + '">' +
+            '<input type="checkbox" class="w-day" data-day="' + i + '"' + disabledAttr + (days.includes(i) ? ' checked' : '') + ' />' +
+            d +
+          '</label>'
+        ).join('') +
+      '</div>' +
+      '<div class="window-row-domains">' +
+        '<span class="window-domains-label">Block these sites (leave empty to block all distracting sites):</span>' +
+        '<input type="text" class="w-blocked-domains input-inline"' + disabledAttr + ' value="' + blockedDomains + '" placeholder="e.g. reddit.com, twitter.com" style="width:100%;margin-top:6px" />' +
+      '</div>' +
+      (hasPending ? '<div class="strict-lock-msg">⏳ Change queued — applies when window ends</div>' : '') +
+      (locked ? '<div class="strict-lock-msg">🔒 Strict mode — window is active, changes queued</div>' : '');
+
     container.appendChild(row);
 
-    row.querySelector('.btn-save-row').addEventListener('click', async () => {
-      const s = await getSettings();
-      const wins = s.focusWindows || [];
-      wins[idx] = {
+    function collectWindowData() {
+      const selectedDays = [...row.querySelectorAll('.w-day:checked')].map(el => parseInt(el.dataset.day));
+      const rawDomains = row.querySelector('.w-blocked-domains').value;
+      const domainList = rawDomains.split(',').map(d => d.trim().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '').toLowerCase()).filter(Boolean);
+      return {
         id: w.id,
         enabled: row.querySelector('.w-enabled').checked,
         label: row.querySelector('.w-label').value.trim() || 'Focus',
         start: row.querySelector('.w-start').value,
-        end: row.querySelector('.w-end').value
+        end: row.querySelector('.w-end').value,
+        days: selectedDays.length > 0 ? selectedDays : [0,1,2,3,4,5,6],
+        blockedDomains: domainList
       };
-      await setSetting('focusWindows', wins);
-      await setSetting('_userConfigured', true);
-      updateLiveStatus(wins);
-      showStatus('windows-status', 'Saved!');
-      renderDashboard(await getSettings());
-    });
+    }
 
-    row.querySelector('.btn-del-row').addEventListener('click', async () => {
-      const s = await getSettings();
-      const wins = (s.focusWindows || []).filter((_, i) => i !== idx);
-      await setSetting('focusWindows', wins);
-      await setSetting('_userConfigured', true);
-      updateLiveStatus(wins);
-      renderWindows(wins);
-      renderDashboard(await getSettings());
+    const saveBtn = row.querySelector('.btn-save-row:not(.btn-queue-save)');
+    if (saveBtn) {
+      saveBtn.addEventListener('click', async () => {
+        const s = await getSettings();
+        const wins = s.focusWindows || [];
+        wins[idx] = collectWindowData();
+        await setSetting('focusWindows', wins);
+        await setSetting('_userConfigured', true);
+        updateLiveStatus(wins);
+        showStatus('windows-status', 'Saved!');
+        renderWindows(wins, s.strictBlocking, s.pendingFocusWindowChanges);
+        renderDashboard(await getSettings());
+      });
+    }
+
+    const queueBtn = row.querySelector('.btn-queue-save');
+    if (queueBtn) {
+      queueBtn.addEventListener('click', async () => {
+        const s = await getSettings();
+        const updated = collectWindowData();
+        const p = s.pendingFocusWindowChanges || {};
+        p[w.id] = { action: 'update', window: updated };
+        await setSetting('pendingFocusWindowChanges', p);
+        showStatus('windows-status', 'Strict mode: change queued — applies when window ends.');
+        renderWindows(s.focusWindows, s.strictBlocking, p);
+      });
+    }
+
+    const delBtn = row.querySelector('.btn-del-row');
+    if (delBtn) {
+      delBtn.addEventListener('click', async () => {
+        const s = await getSettings();
+        if (s.strictBlocking && isWindowActive(w)) {
+          const p = s.pendingFocusWindowChanges || {};
+          p[w.id] = { action: 'delete' };
+          await setSetting('pendingFocusWindowChanges', p);
+          showStatus('windows-status', 'Strict mode: deletion queued — applies when window ends.');
+          renderWindows(s.focusWindows, s.strictBlocking, p);
+        } else {
+          const wins = (s.focusWindows || []).filter((_, i) => i !== idx);
+          await setSetting('focusWindows', wins);
+          await setSetting('_userConfigured', true);
+          updateLiveStatus(wins);
+          renderWindows(wins, s.strictBlocking, s.pendingFocusWindowChanges);
+          renderDashboard(await getSettings());
+        }
+      });
+    }
+
+    // Day pill toggle (visual only — actual value read on save)
+    row.querySelectorAll('.w-day').forEach(cb => {
+      cb.addEventListener('change', () => {
+        cb.closest('.day-pill').classList.toggle('active', cb.checked);
+      });
     });
   });
 }
 
 // ── Binge Rules ──
-function renderBingeRules(rules, usage) {
+function renderBingeRules(rules, usage, strict, pending) {
   const container = document.getElementById('binge-rules-list');
   container.innerHTML = '';
   if (!rules || rules.length === 0) {
@@ -313,31 +405,37 @@ function renderBingeRules(rules, usage) {
     const usedSecs = domainUsage.filter(e => e.ts > cutoff).reduce((s, e) => s + (e.secs || (e.mins || 0) * 60), 0);
     const pct = Math.min(usedSecs / limitSecs, 1);
     const blocked = usedSecs >= limitSecs;
+    const hasPending = pending && pending[rule.domain];
+    // In strict mode, inputs are locked while the domain is currently blocked
+    const locked = strict && blocked;
+    const disabledAttr = locked ? ' disabled' : '';
 
     const row = document.createElement('div');
-    row.className = 'binge-rule-row' + (blocked ? ' blocked' : '');
+    row.className = 'binge-rule-row' + (blocked ? ' blocked' : '') + (locked ? ' strict-locked' : '');
     row.innerHTML =
       '<div class="binge-rule-top">' +
-        '<label class="switch"><input type="checkbox" class="br-enabled" ' + (rule.enabled ? 'checked' : '') + '/><span class="slider"></span></label>' +
-        '<input type="text" class="br-domain input-inline" value="' + rule.domain + '" placeholder="instagram.com" style="width:150px" />' +
+        '<label class="switch"><input type="checkbox" class="br-enabled"' + disabledAttr + ' ' + (rule.enabled ? 'checked' : '') + '/><span class="slider"></span></label>' +
+        '<input type="text" class="br-domain input-inline"' + disabledAttr + ' value="' + rule.domain + '" placeholder="instagram.com" style="width:150px" />' +
         '<div class="binge-rule-limits">' +
           '<span class="binge-limit-label">Block after</span>' +
-          '<input type="number" class="br-limit-m input-num" value="' + limitM + '" min="0" max="480" />' +
+          '<input type="number" class="br-limit-m input-num"' + disabledAttr + ' value="' + limitM + '" min="0" max="480" />' +
           '<span class="binge-limit-label">m</span>' +
-          '<input type="number" class="br-limit-s input-num" value="' + limitS + '" min="0" max="59" />' +
+          '<input type="number" class="br-limit-s input-num"' + disabledAttr + ' value="' + limitS + '" min="0" max="59" />' +
           '<span class="binge-limit-label">s in</span>' +
-          '<input type="number" class="br-window input-num" value="' + rule.windowHours + '" min="1" max="24" />' +
+          '<input type="number" class="br-window input-num"' + disabledAttr + ' value="' + rule.windowHours + '" min="1" max="24" />' +
           '<span class="binge-limit-label">hr</span>' +
         '</div>' +
         '<button class="btn-save-row">Save</button>' +
-        '<button class="btn-del-row" title="Remove">🗑</button>' +
+        (locked ? '' : '<button class="btn-del-row" title="Remove">🗑</button>') +
       '</div>' +
       '<div class="binge-usage-bar"><div class="binge-usage-fill ' + (blocked ? 'red' : pct >= 0.75 ? 'amber' : '') + '" style="width:' + Math.round(pct * 100) + '%"></div></div>' +
       '<div class="binge-usage-label">' +
         '<span>' + formatSecs(usedSecs) + ' / ' + formatSecs(limitSecs) + ' used this ' + rule.windowHours + 'h window</span>' +
         (blocked ? '<span class="binge-blocked-badge">BLOCKED</span>' : '') +
-        '<button class="btn-reset-usage" data-domain="' + rule.domain + '">Reset usage</button>' +
-      '</div>';
+        (hasPending ? '<span class="binge-pending-badge">Change pending after block</span>' : '') +
+        (locked ? '' : '<button class="btn-reset-usage" data-domain="' + rule.domain + '">Reset usage</button>') +
+      '</div>' +
+      (locked ? '<div class="strict-lock-msg">🔒 Strict mode — changes apply after this block expires</div>' : '');
 
     container.appendChild(row);
 
@@ -346,55 +444,104 @@ function renderBingeRules(rules, usage) {
       const rs = s.bingeRules || [];
       const ls = displayToSecs(row.querySelector('.br-limit-m').value, row.querySelector('.br-limit-s').value);
       if (ls <= 0) { showStatus('binge-status', 'Limit must be > 0', true); return; }
-      rs[idx] = {
+      const updated = {
         id: rule.id,
         enabled: row.querySelector('.br-enabled').checked,
         domain: row.querySelector('.br-domain').value.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase(),
         limitSecs: ls,
         windowHours: parseInt(row.querySelector('.br-window').value) || 1
       };
-      await setSetting('bingeRules', rs);
-      await setSetting('_userConfigured', true);
-      showStatus('binge-status', 'Saved!');
-      renderBingeRules(rs, s.bingeUsage);
-      renderDashboard(await getSettings());
+
+      if (s.strictBlocking && blocked) {
+        // Queue the change — apply after block expires
+        const p = s.pendingBingeRules || {};
+        p[rule.domain] = { action: 'update', rule: updated };
+        await setSetting('pendingBingeRules', p);
+        showStatus('binge-status', 'Strict mode: change queued — will apply when block expires.');
+        renderBingeRules(rs, s.bingeUsage, s.strictBlocking, p);
+      } else {
+        rs[idx] = updated;
+        await setSetting('bingeRules', rs);
+        await setSetting('_userConfigured', true);
+        showStatus('binge-status', 'Saved!');
+        renderBingeRules(rs, s.bingeUsage, s.strictBlocking, s.pendingBingeRules);
+        renderDashboard(await getSettings());
+      }
     });
 
-    row.querySelector('.btn-del-row').addEventListener('click', async () => {
-      const s = await getSettings();
-      const rs = (s.bingeRules || []).filter((_, i) => i !== idx);
-      await setSetting('bingeRules', rs);
-      renderBingeRules(rs, s.bingeUsage);
-      renderDashboard(await getSettings());
-    });
+    const delBtn = row.querySelector('.btn-del-row');
+    if (delBtn) {
+      delBtn.addEventListener('click', async () => {
+        const s = await getSettings();
+        if (s.strictBlocking && blocked) {
+          // Queue deletion
+          const p = s.pendingBingeRules || {};
+          p[rule.domain] = { action: 'delete' };
+          await setSetting('pendingBingeRules', p);
+          showStatus('binge-status', 'Strict mode: deletion queued — will apply when block expires.');
+          renderBingeRules(s.bingeRules, s.bingeUsage, s.strictBlocking, p);
+        } else {
+          const rs = (s.bingeRules || []).filter((_, i) => i !== idx);
+          await setSetting('bingeRules', rs);
+          renderBingeRules(rs, s.bingeUsage, s.strictBlocking, s.pendingBingeRules);
+          renderDashboard(await getSettings());
+        }
+      });
+    }
 
-    row.querySelector('.btn-reset-usage').addEventListener('click', async () => {
-      const s = await getSettings();
-      const u = s.bingeUsage || {};
-      delete u[rule.domain];
-      await setSetting('bingeUsage', u);
-      showStatus('binge-status', 'Usage reset.');
-      renderBingeRules(s.bingeRules, u);
-      renderDashboard(await getSettings());
-    });
+    const resetBtn = row.querySelector('.btn-reset-usage');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', async () => {
+        const s = await getSettings();
+        if (s.strictBlocking && blocked) {
+          showStatus('binge-status', 'Strict mode: cannot reset usage while blocked.', true);
+          return;
+        }
+        const u = s.bingeUsage || {};
+        delete u[rule.domain];
+        await setSetting('bingeUsage', u);
+        showStatus('binge-status', 'Usage reset.');
+        renderBingeRules(s.bingeRules, u, s.strictBlocking, s.pendingBingeRules);
+        renderDashboard(await getSettings());
+      });
+    }
   });
 }
 
-function renderWhitelist(list) {
+function renderWhitelist(list, pathList) {
   const ul = document.getElementById('whitelist-list');
   ul.innerHTML = '';
-  list.forEach(domain => {
+
+  // Domain entries
+  (list || []).forEach(domain => {
     const li = document.createElement('li');
     li.className = 'tag';
-    li.innerHTML = '<span>' + domain + '</span><button class="tag-remove" data-domain="' + domain + '">&times;</button>';
+    li.innerHTML = '<span>' + domain + '</span><button class="tag-remove" data-domain="' + domain + '" data-type="domain">&times;</button>';
     ul.appendChild(li);
   });
+
+  // Path entries
+  (pathList || []).forEach((entry, idx) => {
+    const pattern = entry.pattern || entry;
+    const label = entry.label ? ' <em>(' + entry.label + ')</em>' : '';
+    const li = document.createElement('li');
+    li.className = 'tag tag-path';
+    li.innerHTML = '<span class="tag-path-icon">⤷</span><span>' + pattern + label + '</span><button class="tag-remove" data-idx="' + idx + '" data-type="path">&times;</button>';
+    ul.appendChild(li);
+  });
+
   ul.querySelectorAll('.tag-remove').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const { whitelist } = await getSettings();
-      const updated = whitelist.filter(d => d !== btn.dataset.domain);
-      await setSetting('whitelist', updated);
-      renderWhitelist(updated);
+      const s = await getSettings();
+      if (btn.dataset.type === 'path') {
+        const updated = (s.pathWhitelist || []).filter((_, i) => i !== parseInt(btn.dataset.idx));
+        await setSetting('pathWhitelist', updated);
+        renderWhitelist(s.whitelist, updated);
+      } else {
+        const updated = s.whitelist.filter(d => d !== btn.dataset.domain);
+        await setSetting('whitelist', updated);
+        renderWhitelist(updated, s.pathWhitelist);
+      }
     });
   });
 }
@@ -420,37 +567,62 @@ async function init() {
   updateLiveStatus(settings.focusWindows);
   updatePausedBanner();
   renderDashboard(settings);
-  renderWindows(settings.focusWindows);
-  renderBingeRules(settings.bingeRules, settings.bingeUsage);
-  renderWhitelist(settings.whitelist);
+  renderWindows(settings.focusWindows, settings.strictBlocking, settings.pendingFocusWindowChanges);
+  renderBingeRules(settings.bingeRules, settings.bingeUsage, settings.strictBlocking, settings.pendingBingeRules);
+  renderWhitelist(settings.whitelist, settings.pathWhitelist);
 
   // Mode
   const modeRadio = document.querySelector('input[name="mode"][value="' + settings.interventionMode + '"]');
   if (modeRadio) modeRadio.checked = true;
 
-  // API key
-  document.getElementById('api-key').value = settings.apiKey || '';
+  // Strict blocking toggle
+  const strictToggle = document.getElementById('strict-blocking-toggle');
+  if (strictToggle) {
+    strictToggle.checked = !!settings.strictBlocking;
+    strictToggle.addEventListener('change', async () => {
+      await setSetting('strictBlocking', strictToggle.checked);
+      await setSetting('_userConfigured', true);
+      showStatus('binge-status', strictToggle.checked ? 'Strict blocking enabled.' : 'Strict blocking disabled.');
+      const s = await getSettings();
+      renderBingeRules(s.bingeRules, s.bingeUsage, s.strictBlocking, s.pendingBingeRules);
+    });
+  }
+
+  // Theme picker
+  const applyThemeClass = (theme) => {
+    document.documentElement.className = document.documentElement.className
+      .replace(/adb-theme-\S+/g, '').trim();
+    if (theme && theme !== 'default') {
+      document.documentElement.classList.add('adb-theme-' + theme);
+    }
+  };
+
+  applyThemeClass(settings.theme || 'default');
+
+  const themeRadio = document.querySelector('input[name="theme"][value="' + (settings.theme || 'default') + '"]');
+  if (themeRadio) themeRadio.checked = true;
+
+  // Live preview on radio change
+  document.querySelectorAll('input[name="theme"]').forEach(radio => {
+    radio.addEventListener('change', () => applyThemeClass(radio.value));
+  });
+
+  document.getElementById('save-theme').addEventListener('click', async () => {
+    const selected = document.querySelector('input[name="theme"]:checked');
+    if (!selected) return;
+    await setSetting('theme', selected.value);
+    await setSetting('_userConfigured', true);
+    showStatus('theme-status', 'Theme saved!');
+  });
 
   // ── Listeners ──
-  document.getElementById('toggle-key').addEventListener('click', () => {
-    const inp = document.getElementById('api-key');
-    inp.type = inp.type === 'password' ? 'text' : 'password';
-  });
-
-  document.getElementById('save-api-key').addEventListener('click', async () => {
-    const key = document.getElementById('api-key').value.trim();
-    if (!key) { showStatus('api-key-status', 'Enter a key first.', true); return; }
-    await setSetting('apiKey', key);
-    await setSetting('_userConfigured', true);
-    showStatus('api-key-status', 'Saved!');
-  });
 
   document.getElementById('add-window').addEventListener('click', async () => {
     const s = await getSettings();
     const wins = s.focusWindows || [];
-    wins.push({ id: uid(), enabled: true, start: '09:00', end: '17:00', label: 'Focus ' + (wins.length + 1) });
+    wins.push({ id: uid(), enabled: true, start: '09:00', end: '17:00', label: 'Focus ' + (wins.length + 1), days: [1,2,3,4,5], blockedDomains: [] });
     await setSetting('focusWindows', wins);
-    renderWindows(wins);
+    renderWindows(wins, s.strictBlocking, s.pendingFocusWindowChanges);
     updateLiveStatus(wins);
   });
 
@@ -459,7 +631,7 @@ async function init() {
     const rules = s.bingeRules || [];
     rules.push({ id: uid(), enabled: true, domain: '', limitSecs: 300, windowHours: 1 });
     await setSetting('bingeRules', rules);
-    renderBingeRules(rules, s.bingeUsage);
+    renderBingeRules(rules, s.bingeUsage, s.strictBlocking, s.pendingBingeRules);
     setTimeout(() => {
       const inputs = document.querySelectorAll('.br-domain');
       if (inputs.length) inputs[inputs.length - 1].focus();
@@ -475,13 +647,34 @@ async function init() {
 
   document.getElementById('add-whitelist').addEventListener('click', async () => {
     const input = document.getElementById('whitelist-input');
-    const domain = input.value.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase();
-    if (!domain) return;
-    const { whitelist } = await getSettings();
-    if (!whitelist.includes(domain)) {
-      whitelist.push(domain);
-      await setSetting('whitelist', whitelist);
-      renderWhitelist(whitelist);
+    const raw = input.value.trim().replace(/^https?:\/\//, '').replace(/^www\./, '').toLowerCase();
+    if (!raw) return;
+    const s = await getSettings();
+
+    // Extract the domain part to check if it's currently binge-blocked
+    const domainPart = raw.split('/')[0];
+    if (isDomainBlocked(domainPart, s)) {
+      showStatus('whitelist-status', 'Cannot whitelist — site is currently blocked by Binge Guard.', true);
+      return;
+    }
+
+    if (raw.includes('/')) {
+      const pathList = s.pathWhitelist || [];
+      const already = pathList.some(e => (e.pattern || e) === raw);
+      if (!already) {
+        pathList.push({ pattern: raw, label: '' });
+        await setSetting('pathWhitelist', pathList);
+        await setSetting('_userConfigured', true);
+        renderWhitelist(s.whitelist, pathList);
+      }
+    } else {
+      const { whitelist } = s;
+      if (!whitelist.includes(raw)) {
+        whitelist.push(raw);
+        await setSetting('whitelist', whitelist);
+        await setSetting('_userConfigured', true);
+        renderWhitelist(whitelist, s.pathWhitelist);
+      }
     }
     input.value = '';
   });
@@ -513,7 +706,7 @@ async function init() {
     try {
       const text = await file.text();
       const data = JSON.parse(text);
-      const allowed = ['focusWindows', 'interventionMode', 'whitelist', 'bingeRules'];
+      const allowed = ['focusWindows', 'interventionMode', 'whitelist', 'pathWhitelist', 'bingeRules'];
       const patch = {};
       allowed.forEach(k => { if (data[k] !== undefined) patch[k] = data[k]; });
       patch._userConfigured = true;
@@ -522,9 +715,9 @@ async function init() {
       const s = await getSettings();
       updateLiveStatus(s.focusWindows);
       renderDashboard(s);
-      renderWindows(s.focusWindows);
-      renderBingeRules(s.bingeRules, s.bingeUsage);
-      renderWhitelist(s.whitelist);
+      renderWindows(s.focusWindows, s.strictBlocking, s.pendingFocusWindowChanges);
+      renderBingeRules(s.bingeRules, s.bingeUsage, s.strictBlocking, s.pendingBingeRules);
+      renderWhitelist(s.whitelist, s.pathWhitelist);
     } catch {
       showStatus('reset-status', 'Invalid file.', true);
     }
@@ -543,7 +736,6 @@ async function init() {
       pauseUntil: s.pauseUntil,
       statsKeys: Object.keys(s.stats || {}),
       bingeUsageDomains: Object.keys(s.bingeUsage || {}),
-      hasApiKey: !!s.apiKey
     };
     try {
       await navigator.clipboard.writeText(JSON.stringify(debug, null, 2));
@@ -566,15 +758,34 @@ async function init() {
     updateLiveStatus(settings.focusWindows);
   });
 
-  // Refresh every 30s — skip binge re-render if user is actively editing
-  setInterval(async () => {
-    const s = await getSettings();
-    updateLiveStatus(s.focusWindows);
-    updatePausedBanner();
-    renderDashboard(s);
-    const editing = document.activeElement && document.activeElement.closest('.binge-rule-row');
-    if (!editing) renderBingeRules(s.bingeRules, s.bingeUsage);
-  }, 30000);
+  // Re-render affected sections whenever storage changes
+  const WATCH_KEYS = ['focusWindows','bingeRules','bingeUsage','whitelist','pathWhitelist',
+    'interventionMode','strictBlocking','pendingBingeRules','pendingFocusWindowChanges',
+    'stats','pauseUntil','theme'];
+  let updateTimer = null;
+  chrome.storage.onChanged.addListener((changes) => {
+    const relevant = Object.keys(changes).some(k => WATCH_KEYS.includes(k));
+    if (!relevant) return;
+    clearTimeout(updateTimer);
+    updateTimer = setTimeout(async () => {
+      const s = await getSettings();
+      updateLiveStatus(s.focusWindows);
+      updatePausedBanner();
+      renderDashboard(s);
+      const editingBinge = document.activeElement && document.activeElement.closest('.binge-rule-row');
+      if (!editingBinge) renderBingeRules(s.bingeRules, s.bingeUsage, s.strictBlocking, s.pendingBingeRules);
+      const editingWindow = document.activeElement && document.activeElement.closest('.window-row');
+      if (!editingWindow) renderWindows(s.focusWindows, s.strictBlocking, s.pendingFocusWindowChanges);
+      renderWhitelist(s.whitelist, s.pathWhitelist);
+      const modeRadio = document.querySelector('input[name="mode"][value="' + s.interventionMode + '"]');
+      if (modeRadio) modeRadio.checked = true;
+      const strictToggle = document.getElementById('strict-blocking-toggle');
+      if (strictToggle) strictToggle.checked = !!s.strictBlocking;
+      applyThemeClass(s.theme || 'default');
+      const themeRadio = document.querySelector('input[name="theme"][value="' + (s.theme || 'default') + '"]');
+      if (themeRadio) themeRadio.checked = true;
+    }, 150);
+  });
 }
 
 init();

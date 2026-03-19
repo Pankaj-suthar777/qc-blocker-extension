@@ -3,14 +3,20 @@
 
 // ── Storage schema ──
 const DEFAULTS = {
-  apiKey: "",
   focusWindows: [
-    { id: "1", enabled: true, start: "09:00", end: "17:00", label: "Work" }
+    { id: "1", enabled: true, start: "09:00", end: "17:00", label: "Work", days: [1,2,3,4,5], blockedDomains: [] }
   ],
   interventionMode: "both",
   whitelist: ["github.com", "stackoverflow.com", "docs.google.com", "notion.so", "figma.com"],
+  pathWhitelist: [],
   bingeRules: [],
   bingeUsage: {},
+  strictBlocking: false,
+  pendingBingeRules: {},
+  pendingFocusWindowChanges: {},
+  // escalationBlocks: { domain: expiresAt } — persists stage-3 across refreshes until focus window ends
+  escalationBlocks: {},
+  theme: 'default',
   stats: {},
   pauseUntil: 0,
   _userConfigured: false
@@ -57,22 +63,58 @@ async function ensureDefaults() {
 }
 
 // ── Focus window helpers ──
+// days: 0=Sun,1=Mon,...,6=Sat (matches JS Date.getDay())
+function isWindowActiveNow(w) {
+  if (!w.enabled) return false;
+  const now = new Date();
+  const day = now.getDay();
+  const days = w.days && w.days.length > 0 ? w.days : [0,1,2,3,4,5,6];
+  if (!days.includes(day)) return false;
+  const nowMins = now.getHours() * 60 + now.getMinutes();
+  const [sh, sm] = w.start.split(':').map(Number);
+  const [eh, em] = w.end.split(':').map(Number);
+  return nowMins >= sh * 60 + sm && nowMins < eh * 60 + em;
+}
+
 function isInAnyFocusWindow(focusWindows) {
   if (!focusWindows || focusWindows.length === 0) return false;
-  const now = new Date();
-  const nowMins = now.getHours() * 60 + now.getMinutes();
-  return focusWindows.some(w => {
-    if (!w.enabled) return false;
-    const [sh, sm] = w.start.split(':').map(Number);
-    const [eh, em] = w.end.split(':').map(Number);
-    return nowMins >= sh * 60 + sm && nowMins < eh * 60 + em;
-  });
+  return focusWindows.some(isWindowActiveNow);
+}
+
+// Returns the active window that blocks this URL (checks per-window blockedDomains)
+function getBlockingWindow(url, focusWindows) {
+  if (!focusWindows || focusWindows.length === 0) return null;
+  try {
+    const hostname = new URL(url).hostname.replace(/^www\./, '');
+    return focusWindows.find(w => {
+      if (!isWindowActiveNow(w)) return false;
+      const blocked = w.blockedDomains || [];
+      // If no per-window domains set, window blocks everything (old behaviour)
+      if (blocked.length === 0) return true;
+      return blocked.some(d => hostname === d || hostname.endsWith('.' + d));
+    }) || null;
+  } catch { return null; }
 }
 
 function isWhitelisted(url, whitelist) {
   try {
     const hostname = new URL(url).hostname.replace(/^www\./, '');
     return (whitelist || []).some(w => hostname === w || hostname.endsWith('.' + w));
+  } catch { return false; }
+}
+
+// Path whitelist: each entry is a string like "reddit.com/r/MachineLearning"
+// Matches if the URL's hostname+pathname starts with the pattern (case-insensitive)
+function isPathWhitelisted(url, pathWhitelist) {
+  if (!pathWhitelist || pathWhitelist.length === 0) return false;
+  try {
+    const u = new URL(url);
+    const hostname = u.hostname.replace(/^www\./, '');
+    const fullPath = (hostname + u.pathname).toLowerCase().replace(/\/$/, '');
+    return pathWhitelist.some(entry => {
+      const pattern = (entry.pattern || entry).toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/$/, '');
+      return fullPath === pattern || fullPath.startsWith(pattern + '/');
+    });
   } catch { return false; }
 }
 
@@ -83,72 +125,130 @@ function getDomain(url) {
 // ── Rule-based classifier ──
 const DISTRACTING_DOMAINS = [
   'twitter.com','x.com','instagram.com','tiktok.com','facebook.com',
-  'reddit.com','snapchat.com','pinterest.com','tumblr.com','twitch.tv',
+  'snapchat.com','pinterest.com','tumblr.com','twitch.tv',
   'netflix.com','primevideo.com','disneyplus.com',
   'buzzfeed.com','dailymail.co.uk','tmz.com','9gag.com','imgur.com'
 ];
+
+// Reddit subreddits that are clearly educational/productive — never blocked
+const REDDIT_PRODUCTIVE_SUBS = new Set([
+  'machinelearning','learnmachinelearning','deeplearning','artificial',
+  'programming','learnprogramming','compsci','computerscience','coding',
+  'webdev','javascript','python','rust','golang','cpp','java','typescript',
+  'devops','sysadmin','netsec','cybersecurity','reverseengineering',
+  'datascience','statistics','math','mathematics','physics','chemistry',
+  'biology','neuroscience','medicine','askscience','science','space',
+  'engineering','electronics','diy',
+  'personalfinance','financialindependence','investing','frugal',
+  'productivity','getdisciplined','selfimprovement','nosurf',
+  'books','literature','writing','languagelearning','history',
+  'philosophy','ethics','law','legaladvice',
+  'linux','opensource','selfhosted','homelab','networking',
+  'learnpython','learnjavascript','cscareerquestions','experienceddevs',
+  'softwareengineering','gamedev','unity3d','unrealengine',
+]);
+
+// Reddit subreddits that are clearly distracting/entertainment
+const REDDIT_DISTRACTING_SUBS = new Set([
+  'funny','memes','dankmemes','me_irl','AdviceAnimals','facepalm',
+  'tifu','amitheasshole','relationship_advice','relationships',
+  'gaming','pcgaming','ps5','xboxone','nintendoswitch',
+  'movies','television','netflix','anime','manga',
+  'nfl','nba','soccer','sports','formula1',
+  'worldnews','news','politics','politicalhumor',
+  'videos','gifs','aww','cats','dogs','pics','earthporn',
+  'askreddit','casualconversation','teenagers','teenagers',
+  'roastme','cringe','cringetopia','trashy','insanepeoplefacebook',
+  'hmmm','unexpected','interestingasfuck','mildlyinteresting',
+  'showerthoughts','unpopularopinion','changemyview',
+]);
 
 function ruleBasedClassify(url) {
   try {
     const u = new URL(url);
     const h = u.hostname.replace(/^www\./, '');
+
+    // ── YouTube ──
     if (h === 'youtube.com' || h === 'youtu.be') {
-      // Productive: watch page with a video ID (likely intentional)
       if (/^\/watch/.test(u.pathname) && u.searchParams.get('v')) return 'productive';
-      // Distracting: homepage, shorts, feed, trending, explore
       if (
-        u.pathname === '/' ||
-        u.pathname === '' ||
+        u.pathname === '/' || u.pathname === '' ||
         /^\/shorts\//.test(u.pathname) ||
         /^\/(feed|trending|explore|gaming|sports|fashion|beauty)/.test(u.pathname)
       ) return 'distracting';
-      // Playlists, channels, search — let AI decide
+      return null; // playlists, channels, search → AI
+    }
+
+    // ── Reddit ──
+    if (h === 'reddit.com' || h === 'old.reddit.com' || h === 'new.reddit.com') {
+      const subMatch = u.pathname.match(/^\/r\/([^/]+)/i);
+      if (subMatch) {
+        const sub = subMatch[1].toLowerCase();
+        if (REDDIT_PRODUCTIVE_SUBS.has(sub)) return 'productive';
+        if (REDDIT_DISTRACTING_SUBS.has(sub)) return 'distracting';
+        // Unknown subreddit — let AI decide based on full URL + page content
+        return null;
+      }
+      // Reddit homepage, popular, all, search → distracting
+      if (
+        u.pathname === '/' || u.pathname === '' ||
+        /^\/(hot|new|rising|top|controversial|popular|all|search)/.test(u.pathname)
+      ) return 'distracting';
       return null;
     }
+
     if (DISTRACTING_DOMAINS.some(d => h === d || h.endsWith('.' + d))) return 'distracting';
     return null;
   } catch { return null; }
 }
 
-// ── AI classifier ──
-async function classifyWithAI(apiKey, { title, url, description, bodyText }) {
-  const res = await fetch('https://api.unlimitedclaude.com/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4.6',
-      max_tokens: 100,
-      system: `You are a content classifier for a focus/productivity Chrome extension.
-Classify the page as "productive" or "distracting".
-Productive: technical articles, docs, educational videos, coding, research, learning.
-Distracting: social media feeds, memes, gossip, random entertainment, browser games, doomscrolling.
-Respond ONLY with JSON: {"classification":"productive"|"distracting","reason":"one short sentence"}`,
-      messages: [{ role: 'user', content: `URL: ${url}\nTitle: ${title}\nMeta: ${description || 'none'}\nExcerpt: ${(bodyText || '').slice(0, 800)}` }]
-    })
-  });
-  if (!res.ok) return null;
-  const data = await res.json();
-  const text = data?.choices?.[0]?.message?.content?.trim() || '{}';
-  return JSON.parse(text);
+// ── Binge guard ──
+// In-memory accumulator — flushes to storage every 5s to avoid write-per-second
+const bingeAccumulator = {}; // { domain: { secs: N, dirty: bool } }
+let flushTimer = null;
+
+async function flushBingeAccumulator() {
+  const domains = Object.keys(bingeAccumulator).filter(d => bingeAccumulator[d].dirty);
+  if (domains.length === 0) return;
+  const settings = await getSettings();
+  const usage = settings.bingeUsage || {};
+  const cutoff = Date.now() - 24 * 3600 * 1000;
+  for (const domain of domains) {
+    const acc = bingeAccumulator[domain];
+    if (!usage[domain]) usage[domain] = [];
+    usage[domain].push({ ts: Date.now(), secs: acc.secs });
+    usage[domain] = usage[domain].filter(e => e.ts > cutoff);
+    acc.secs = 0;
+    acc.dirty = false;
+  }
+  await setKey('bingeUsage', usage);
 }
 
-// ── Binge guard ──
-// All time stored in SECONDS internally. limitSecs, usedSecs, windowHours.
-// Legacy records with .mins are auto-converted.
+function scheduleFlush() {
+  if (flushTimer) return;
+  flushTimer = setTimeout(async () => {
+    flushTimer = null;
+    await flushBingeAccumulator();
+  }, 5000);
+}
 
 async function getBingeStatus(domain) {
   const settings = await getSettings();
   const rule = (settings.bingeRules || []).find(r => r.enabled && (domain === r.domain || domain.endsWith('.' + r.domain)));
   if (!rule) return null;
 
-  const limitSecs = rule.limitSecs || (rule.limitMins || 5) * 60; // back-compat
+  const limitSecs = rule.limitSecs || (rule.limitMins || 5) * 60;
   const usage = settings.bingeUsage || {};
   const domainUsage = usage[rule.domain] || [];
   const windowMs = rule.windowHours * 3600 * 1000;
   const cutoff = Date.now() - windowMs;
-  const usedSecs = domainUsage
+
+  // Add any unflushed in-memory seconds on top of stored usage
+  const pendingSecs = (bingeAccumulator[rule.domain] || {}).secs || 0;
+  const storedSecs = domainUsage
     .filter(e => e.ts > cutoff)
-    .reduce((s, e) => s + (e.secs || (e.mins || 0) * 60), 0); // back-compat
+    .reduce((s, e) => s + (e.secs || (e.mins || 0) * 60), 0);
+  const usedSecs = storedSecs + pendingSecs;
   const blocked = usedSecs >= limitSecs;
 
   let unblockAt = null;
@@ -166,13 +266,10 @@ async function getBingeStatus(domain) {
 }
 
 async function recordBingeSeconds(domain, secs) {
-  const settings = await getSettings();
-  const usage = settings.bingeUsage || {};
-  if (!usage[domain]) usage[domain] = [];
-  usage[domain].push({ ts: Date.now(), secs });
-  const cutoff = Date.now() - 24 * 3600 * 1000;
-  usage[domain] = usage[domain].filter(e => e.ts > cutoff);
-  await setKey('bingeUsage', usage);
+  if (!bingeAccumulator[domain]) bingeAccumulator[domain] = { secs: 0, dirty: false };
+  bingeAccumulator[domain].secs += secs;
+  bingeAccumulator[domain].dirty = true;
+  scheduleFlush();
 }
 
 // ── Binge notification (fires once at 80% threshold) ──
@@ -197,6 +294,48 @@ function maybeSendBingeNotification(domain, usedSecs, limitSecs) {
   if (pct < 0.7) notifiedTabs.delete(key);
 }
 
+// ── Escalation block helpers ──
+// Persists stage-3 blocks by domain until the active focus window ends
+
+function getFocusWindowEndMs(focusWindows) {
+  const now = new Date();
+  for (const w of (focusWindows || [])) {
+    if (!isWindowActiveNow(w)) continue;
+    const [eh, em] = w.end.split(':').map(Number);
+    const end = new Date(now);
+    end.setHours(eh, em, 0, 0);
+    if (end > now) return end.getTime();
+  }
+  // Fallback: 1 hour from now
+  return Date.now() + 3600 * 1000;
+}
+
+async function setEscalationBlock(domain, focusWindows) {
+  const data = await new Promise(r => chrome.storage.local.get({ escalationBlocks: {} }, r));
+  const blocks = data.escalationBlocks;
+  blocks[domain] = getFocusWindowEndMs(focusWindows);
+  await setKey('escalationBlocks', blocks);
+}
+
+async function isEscalationBlocked(domain) {
+  const data = await new Promise(r => chrome.storage.local.get({ escalationBlocks: {} }, r));
+  const exp = data.escalationBlocks[domain];
+  if (!exp) return false;
+  if (Date.now() >= exp) {
+    // Expired — clean up
+    delete data.escalationBlocks[domain];
+    await setKey('escalationBlocks', data.escalationBlocks);
+    return false;
+  }
+  return true;
+}
+
+async function clearEscalationBlock(domain) {
+  const data = await new Promise(r => chrome.storage.local.get({ escalationBlocks: {} }, r));
+  delete data.escalationBlocks[domain];
+  await setKey('escalationBlocks', data.escalationBlocks);
+}
+
 // ── Per-tab state ──
 const tabStates = {};           // { tabId: { stage, mode } }
 const distractingTabs = {};     // { tabId: domain }
@@ -206,11 +345,70 @@ const allowedOnceTabs = new Set(); // tabIds allowed for this session
 chrome.alarms.create('adb-minute-tick', { periodInMinutes: 1 });
 chrome.alarms.onAlarm.addListener(async alarm => {
   if (alarm.name !== 'adb-minute-tick') return;
-  // Count distracted tabs for stats (best-effort, in-memory)
   const count = Object.keys(distractingTabs).length;
   if (count > 0) incrementStat('distractingMinutes', count);
-  // Note: binge usage recording is handled by BINGE_HEARTBEAT from content scripts
-  // which is reliable across service worker restarts
+
+  // ── Clean up expired escalation blocks ──
+  const ebData = await new Promise(r => chrome.storage.local.get({ escalationBlocks: {} }, r));
+  const blocks = ebData.escalationBlocks;
+  let ebChanged = false;
+  for (const [domain, exp] of Object.entries(blocks)) {
+    if (Date.now() >= exp) { delete blocks[domain]; ebChanged = true; }
+  }
+  if (ebChanged) await setKey('escalationBlocks', blocks);
+
+  // ── Apply pending binge rule changes once block expires ──
+  const settings = await getSettings();
+  if (!settings.strictBlocking) return;
+  const pending = settings.pendingBingeRules || {};
+  if (Object.keys(pending).length === 0) return;
+
+  let rules = settings.bingeRules || [];
+  let changed = false;
+
+  for (const [domain, change] of Object.entries(pending)) {
+    const status = await getBingeStatus(domain);
+    if (status && status.blocked) continue; // still blocked — wait
+
+    if (change.action === 'delete') {
+      rules = rules.filter(r => r.domain !== domain);
+    } else if (change.action === 'update' && change.rule) {
+      const idx = rules.findIndex(r => r.domain === domain);
+      if (idx !== -1) rules[idx] = change.rule;
+      else rules.push(change.rule);
+    }
+    delete pending[domain];
+    changed = true;
+  }
+
+  if (changed) {
+    await setKey('bingeRules', rules);
+    await setKey('pendingBingeRules', pending);
+  }
+
+  // ── Apply pending focus window changes once window ends ──
+  const pendingFW = settings.pendingFocusWindowChanges || {};
+  if (Object.keys(pendingFW).length > 0) {
+    let wins = settings.focusWindows || [];
+    let fwChanged = false;
+    for (const [winId, change] of Object.entries(pendingFW)) {
+      const win = wins.find(w => w.id === winId);
+      if (win && isWindowActiveNow(win)) continue; // still active — wait
+      if (change.action === 'delete') {
+        wins = wins.filter(w => w.id !== winId);
+      } else if (change.action === 'update' && change.window) {
+        const idx = wins.findIndex(w => w.id === winId);
+        if (idx !== -1) wins[idx] = change.window;
+        else wins.push(change.window);
+      }
+      delete pendingFW[winId];
+      fwChanged = true;
+    }
+    if (fwChanged) {
+      await setKey('focusWindows', wins);
+      await setKey('pendingFocusWindowChanges', pendingFW);
+    }
+  }
 });
 
 // ── Worker ready ──
@@ -239,6 +437,41 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'SET_STRICT_BLOCKING') {
+    chrome.storage.local.set({ strictBlocking: !!msg.enabled }, () => sendResponse({ ok: true }));
+    return true;
+  }
+
+  if (msg.type === 'GET_STRICT_STATUS') {
+    chrome.storage.local.get({ strictBlocking: false, pendingBingeRules: {} }, data => {
+      sendResponse({ strictBlocking: data.strictBlocking, pendingBingeRules: data.pendingBingeRules });
+    });
+    return true;
+  }
+
+  // Queue a binge rule change for when the block expires (strict mode)
+  if (msg.type === 'QUEUE_BINGE_CHANGE') {
+    (async () => {
+      const settings = await getSettings();
+      const pending = settings.pendingBingeRules || {};
+      pending[msg.domain] = { action: msg.action, rule: msg.rule || null };
+      await setKey('pendingBingeRules', pending);
+      sendResponse({ ok: true, queued: true });
+    })();
+    return true;
+  }
+
+  if (msg.type === 'QUEUE_FOCUS_WINDOW_CHANGE') {
+    (async () => {
+      const settings = await getSettings();
+      const pending = settings.pendingFocusWindowChanges || {};
+      pending[msg.windowId] = { action: msg.action, window: msg.window || null };
+      await setKey('pendingFocusWindowChanges', pending);
+      sendResponse({ ok: true, queued: true });
+    })();
+    return true;
+  }
+
   // Tab-required messages
   if (!tabId) { sendResponse({ stage: 0 }); return true; }
 
@@ -251,6 +484,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       const domain = getDomain(msg.url);
       if (domain) {
+        // Skip binge tracking if URL is path-whitelisted
+        const settings = await getSettings();
+        if (isPathWhitelisted(msg.url, settings.pathWhitelist)) {
+          sendResponse({ status: null });
+          return;
+        }
         await recordBingeSeconds(domain, msg.secs || 30);
         const status = await getBingeStatus(domain);
         if (status) maybeSendBingeNotification(domain, status.usedSecs, status.limitSecs);
@@ -288,6 +527,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'CLEAR_ESCALATION_BLOCK') {
+    if (msg.domain) clearEscalationBlock(msg.domain);
+    sendResponse({ ok: true });
+    return true;
+  }
+
   if (msg.type === 'STAT_INCREMENT') {
     incrementStat(msg.field, msg.amount || 1).then(() => sendResponse({ ok: true }));
     return true;
@@ -302,6 +547,12 @@ async function handlePageClassify(tabId, msg) {
   const settings = await getSettings();
   const domain = getDomain(msg.url);
 
+  // ── Path whitelist check (highest priority — exempt from everything) ──
+  if (isPathWhitelisted(msg.url, settings.pathWhitelist)) return { stage: 0, pathWhitelisted: true };
+
+  // ── Domain whitelist check ──
+  if (isWhitelisted(msg.url, settings.whitelist)) return { stage: 0 };
+
   // ── Binge guard check (independent of focus window) ──
   let bingeStatus = null;
   if (domain) {
@@ -311,6 +562,11 @@ async function handlePageClassify(tabId, msg) {
     }
   }
 
+  // ── Escalation block check (persisted stage-3 across refreshes) ──
+  if (domain && await isEscalationBlocked(domain)) {
+    return { stage: 3, escalationBlocked: true };
+  }
+
   // ── Allow-once check ──
   if (allowedOnceTabs.has(tabId)) return { stage: 0, bingeStatus };
 
@@ -318,19 +574,22 @@ async function handlePageClassify(tabId, msg) {
   const pauseData = await new Promise(resolve => chrome.storage.local.get({ pauseUntil: 0 }, resolve));
   if (pauseData.pauseUntil > Date.now()) return { stage: 0, bingeStatus, paused: true };
 
-  // ── Focus window check ──
-  if (!isInAnyFocusWindow(settings.focusWindows)) return { stage: 0, bingeStatus };
-  if (isWhitelisted(msg.url, settings.whitelist)) return { stage: 0, bingeStatus };
+  // ── Focus window + per-window blocked domains check ──
+  const blockingWindow = getBlockingWindow(msg.url, settings.focusWindows);
+  if (!blockingWindow) return { stage: 0, bingeStatus };
 
   const current = tabStates[tabId];
   if (current && current.stage > 0) return { stage: 0 };
 
   let classification = ruleBasedClassify(msg.url);
-  if (!classification && settings.apiKey) {
+
+  // If window has specific blockedDomains, any domain in that list is distracting
+  if (blockingWindow.blockedDomains && blockingWindow.blockedDomains.length > 0) {
     try {
-      const ai = await classifyWithAI(settings.apiKey, msg);
-      classification = ai?.classification || null;
-    } catch (e) { /* AI classification failed, fall through */ }
+      const hostname = new URL(msg.url).hostname.replace(/^www\./, '');
+      const inList = blockingWindow.blockedDomains.some(d => hostname === d || hostname.endsWith('.' + d));
+      if (inList) classification = 'distracting';
+    } catch {}
   }
 
   if (classification !== 'distracting') return { stage: 0 };
@@ -349,10 +608,17 @@ async function handlePageClassify(tabId, msg) {
 async function advanceStage(tabId) {
   const state = tabStates[tabId];
   if (!state) return 0;
-  if (state.mode === 'soft') { tabStates[tabId] = { stage: 0, mode: state.mode }; return 0; }
   const next = Math.min(state.stage + 1, 3);
   tabStates[tabId] = { stage: next, mode: state.mode };
-  if (next === 3) await incrementStat('exited');
+  if (next === 3) {
+    await incrementStat('exited');
+    // Persist the block so refreshes still show stage 3
+    const domain = distractingTabs[tabId];
+    if (domain) {
+      const settings = await getSettings();
+      await setEscalationBlock(domain, settings.focusWindows);
+    }
+  }
   return next;
 }
 

@@ -41,9 +41,9 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
         Whitelist
       </a>
-      <a class="nav-item" data-section="api" href="#">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-        API Key
+      <a class="nav-item" data-section="theme" href="#">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 0 20"/><path d="M12 2v20"/></svg>
+        Theme
       </a>
     </nav>
 
@@ -164,6 +164,16 @@
         </div>
         <button id="add-binge-rule" class="btn-primary">+ Add Rule</button>
       </div>
+      <div class="strict-blocking-row">
+        <div class="strict-blocking-info">
+          <div class="strict-blocking-title">Strict Blocking</div>
+          <div class="strict-blocking-desc">When enabled, existing rules cannot be changed or deleted while a site is blocked. Changes are queued and applied after the block expires. Adding new rules is always allowed.</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="strict-blocking-toggle" />
+          <span class="slider"></span>
+        </label>
+      </div>
       <div id="binge-rules-list" class="list-container"></div>
       <div id="binge-status" class="status-msg"></div>
     </section>
@@ -177,16 +187,6 @@
         </div>
       </div>
       <div class="radio-group">
-        <label class="radio-card">
-          <input type="radio" name="mode" value="soft" />
-          <div class="radio-card-inner">
-            <div class="radio-card-icon">💬</div>
-            <div>
-              <div class="radio-card-title">Soft Nudge</div>
-              <div class="radio-card-desc">One popup, easy to dismiss. Good for gentle reminders.</div>
-            </div>
-          </div>
-        </label>
         <label class="radio-card">
           <input type="radio" name="mode" value="hard" />
           <div class="radio-card-inner">
@@ -223,34 +223,62 @@
         </div>
       </div>
       <div class="input-row">
-        <input type="text" id="whitelist-input" placeholder="e.g. notion.so or github.com" />
-        <button id="add-whitelist" class="btn-primary">Add Domain</button>
+        <input type="text" id="whitelist-input" placeholder="e.g. notion.so or reddit.com/r/MachineLearning" />
+        <button id="add-whitelist" class="btn-primary">Add</button>
       </div>
+      <p class="input-hint">Enter a domain (e.g. <code>notion.so</code>) to allow the whole site, or a path (e.g. <code>reddit.com/r/learnprogramming</code>) to allow only that section — bypasses both focus hours and binge guard.</p>
+      <div id="whitelist-status" class="status-msg"></div>
       <ul id="whitelist-list" class="tag-list"></ul>
     </section>
 
-    <!-- API Key -->
-    <section class="page-section" id="section-api">
+    <!-- Theme -->
+    <section class="page-section" id="section-theme">
       <div class="section-header">
         <div>
-          <h2>AI API Key</h2>
-          <p>Used for intelligent content classification. Stored locally only.</p>
+          <h2>Theme</h2>
+          <p>Customize the look of the block overlays</p>
         </div>
       </div>
-      <div class="api-key-card">
-        <div class="api-key-info">
-          <div class="api-key-icon">🔑</div>
-          <div>
-            <div class="api-key-label">UnlimitedClaude API Key</div>
-            <div class="api-key-hint">Your key never leaves your device except to classify page content</div>
+      <div class="theme-grid">
+        <label class="theme-card" data-theme="default">
+          <input type="radio" name="theme" value="default" />
+          <div class="theme-preview theme-preview-default">
+            <span class="theme-dot"></span>
           </div>
-        </div>
-        <div class="input-row" style="margin-top:16px;">
-          <input type="password" id="api-key" placeholder="uc-..." autocomplete="off" />
-          <button id="toggle-key" class="btn-icon" title="Show/hide">👁</button>
-          <button id="save-api-key" class="btn-primary">Save</button>
-        </div>
-        <div id="api-key-status" class="status-msg"></div>
+          <div class="theme-name">Dark Amber</div>
+        </label>
+        <label class="theme-card" data-theme="midnight">
+          <input type="radio" name="theme" value="midnight" />
+          <div class="theme-preview theme-preview-midnight">
+            <span class="theme-dot"></span>
+          </div>
+          <div class="theme-name">Midnight Blue</div>
+        </label>
+        <label class="theme-card" data-theme="forest">
+          <input type="radio" name="theme" value="forest" />
+          <div class="theme-preview theme-preview-forest">
+            <span class="theme-dot"></span>
+          </div>
+          <div class="theme-name">Forest</div>
+        </label>
+        <label class="theme-card" data-theme="crimson">
+          <input type="radio" name="theme" value="crimson" />
+          <div class="theme-preview theme-preview-crimson">
+            <span class="theme-dot"></span>
+          </div>
+          <div class="theme-name">Crimson</div>
+        </label>
+        <label class="theme-card" data-theme="slate">
+          <input type="radio" name="theme" value="slate" />
+          <div class="theme-preview theme-preview-slate">
+            <span class="theme-dot"></span>
+          </div>
+          <div class="theme-name">Slate</div>
+        </label>
+      </div>
+      <div class="form-footer">
+        <button id="save-theme" class="btn-primary">Save Theme</button>
+        <div id="theme-status" class="status-msg"></div>
       </div>
     </section>
 
