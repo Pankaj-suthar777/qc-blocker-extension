@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI Distraction Blocker</title>
+  <title>qC Blocker Extension</title>
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
@@ -12,7 +12,7 @@
     <div class="header-left">
       <span class="logo">🧠</span>
       <div class="header-text">
-        <div class="title">Distraction Blocker</div>
+        <div class="title">qC Blocker</div>
         <div id="status-badge" class="badge badge-inactive">Loading...</div>
       </div>
     </div>
@@ -57,6 +57,62 @@
     </div>
   </div>
 
+  <!-- Quick block current site -->
+  <div id="quick-block-section" class="section" style="display:none">
+    <div class="section-label">Block This Site</div>
+    <div id="quick-domain" class="quick-domain"></div>
+    <div class="quick-btns">
+      <button id="quick-binge-btn" class="quick-btn">⏱ Binge Guard</button>
+      <button id="quick-window-btn" class="quick-btn">🪟 Focus Window</button>
+    </div>
+
+    <!-- Binge Guard inline form -->
+    <div id="quick-binge-form" class="quick-form" style="display:none">
+      <div class="quick-form-row">
+        <label class="quick-label">Block after</label>
+        <div class="quick-selects">
+          <select id="qb-mins" class="quick-select">
+            <option value="5">5 min</option>
+            <option value="10">10 min</option>
+            <option value="15">15 min</option>
+            <option value="20" selected>20 min</option>
+            <option value="30">30 min</option>
+            <option value="45">45 min</option>
+            <option value="60">60 min</option>
+          </select>
+          <select id="qb-secs" class="quick-select">
+            <option value="0" selected>0 sec</option>
+            <option value="15">15 sec</option>
+            <option value="30">30 sec</option>
+            <option value="45">45 sec</option>
+          </select>
+        </div>
+      </div>
+      <div class="quick-form-row">
+        <label class="quick-label">Rolling window</label>
+        <select id="qb-window" class="quick-select">
+          <option value="1" selected>1 hr</option>
+          <option value="2">2 hr</option>
+          <option value="4">4 hr</option>
+          <option value="8">8 hr</option>
+          <option value="24">24 hr</option>
+        </select>
+      </div>
+      <button id="qb-save" class="quick-save-btn">Save Binge Rule</button>
+      <div id="qb-status" class="quick-status"></div>
+    </div>
+
+    <!-- Focus Window inline form -->
+    <div id="quick-window-form" class="quick-form" style="display:none">
+      <div class="quick-form-row">
+        <label class="quick-label">Add to window</label>
+        <select id="qw-window-select" class="quick-select" style="flex:1"></select>
+      </div>
+      <button id="qw-save" class="quick-save-btn">Add to Window</button>
+      <div id="qw-status" class="quick-status"></div>
+    </div>
+  </div>
+
   <!-- Focus Windows -->
   <div class="section">
     <div class="section-label">Focus Windows</div>
@@ -65,10 +121,6 @@
 
   <!-- Footer -->
   <div class="footer">
-    <button id="pause-btn" class="footer-btn footer-btn-pause">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-      <span id="pause-btn-label">Pause for 30 min</span>
-    </button>
     <button id="open-options-link" class="footer-btn">
       Open Settings
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>

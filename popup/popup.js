@@ -64,50 +64,14 @@ async function init() {
     });
   });
 
-  // Status badge + pause button — single call
+  // Status badge
   const windows = settings.focusWindows || [];
   const badge = document.getElementById('status-badge');
   const active = isInAnyWindow(windows);
   const anyEnabled = windows.some(w => w.enabled);
-  const pauseBtn = document.getElementById('pause-btn');
-  const pauseLbl = document.getElementById('pause-btn-label');
 
-  function updatePauseBtn(pauseUntil) {
-    const remaining = pauseUntil - Date.now();
-    if (remaining > 0) {
-      const mins = Math.ceil(remaining / 60000);
-      pauseLbl.textContent = 'Resume (paused ' + mins + 'm left)';
-      pauseBtn.classList.add('active');
-    } else {
-      pauseLbl.textContent = 'Pause for 30 min';
-      pauseBtn.classList.remove('active');
-    }
-  }
-
-  chrome.runtime.sendMessage({ type: 'GET_PAUSE_STATUS' }, res => {
-    const paused = res && res.paused;
-    if (paused) {
-      const mins = Math.ceil((res.pauseUntil - Date.now()) / 60000);
-      badge.textContent = 'Paused · ' + mins + 'm left';
-      badge.className = 'badge badge-paused';
-    } else {
-      badge.textContent = active ? 'Blocking Active' : (anyEnabled ? 'Outside Hours' : 'Disabled');
-      badge.className = 'badge ' + (active ? 'badge-active' : 'badge-inactive');
-    }
-    updatePauseBtn(res ? res.pauseUntil || 0 : 0);
-  });
-
-  pauseBtn.addEventListener('click', () => {
-    chrome.runtime.sendMessage({ type: 'GET_PAUSE_STATUS' }, res => {
-      if (res && res.paused) {
-        chrome.runtime.sendMessage({ type: 'RESUME_BLOCKING' }, () => updatePauseBtn(0));
-      } else {
-        chrome.runtime.sendMessage({ type: 'PAUSE_BLOCKING', minutes: 30 }, r => {
-          if (r) updatePauseBtn(r.until);
-        });
-      }
-    });
-  });
+  badge.textContent = active ? 'Blocking Active' : (anyEnabled ? 'Outside Hours' : 'Disabled');
+  badge.className = 'badge ' + (active ? 'badge-active' : 'badge-inactive');
 
   // Focus windows list
   const container = document.getElementById('windows-display');
@@ -180,6 +144,90 @@ async function init() {
         left.textContent = fmt(limitSecs) + ' left';
         left.classList.remove('red');
       });
+    });
+  });
+
+  // ── Quick block current site ──
+  chrome.tabs.query({ active: true, currentWindow: true }, async tabs => {
+    const tab = tabs[0];
+    if (!tab || !tab.url || !tab.url.startsWith('http')) return;
+    let domain;
+    try { domain = new URL(tab.url).hostname.replace(/^www\./, ''); } catch { return; }
+
+    const s = await getSettings();
+    const alreadyBinge = (s.bingeRules || []).some(r => r.domain === domain);
+    const alreadyWindow = (s.focusWindows || []).some(w => (w.blockedDomains || []).includes(domain));
+    if (alreadyBinge && alreadyWindow) return; // already in both — nothing to offer
+
+    const sec = document.getElementById('quick-block-section');
+    document.getElementById('quick-domain').textContent = domain;
+    sec.style.display = 'block';
+
+    // Hide buttons already configured
+    if (alreadyBinge) document.getElementById('quick-binge-btn').style.display = 'none';
+    if (alreadyWindow) document.getElementById('quick-window-btn').style.display = 'none';
+
+    // Populate window select
+    const winSel = document.getElementById('qw-window-select');
+    const wins = (s.focusWindows || []);
+    if (!wins.length) {
+      winSel.innerHTML = '<option value="">No windows configured</option>';
+      document.getElementById('quick-window-btn').disabled = true;
+    } else {
+      winSel.innerHTML = wins.map((w, i) =>
+        `<option value="${i}">${w.label || 'Focus'} (${w.start}–${w.end})</option>`
+      ).join('');
+    }
+
+    // Toggle binge form
+    document.getElementById('quick-binge-btn').addEventListener('click', () => {
+      document.getElementById('quick-binge-form').style.display = 'block';
+      document.getElementById('quick-window-form').style.display = 'none';
+    });
+
+    // Toggle window form
+    document.getElementById('quick-window-btn').addEventListener('click', () => {
+      document.getElementById('quick-window-form').style.display = 'block';
+      document.getElementById('quick-binge-form').style.display = 'none';
+    });
+
+    // Save binge rule
+    document.getElementById('qb-save').addEventListener('click', async () => {
+      const mins = parseInt(document.getElementById('qb-mins').value) || 0;
+      const secs = parseInt(document.getElementById('qb-secs').value) || 0;
+      const hrs = parseInt(document.getElementById('qb-window').value) || 1;
+      const limitSecs = mins * 60 + secs;
+      if (limitSecs <= 0) { document.getElementById('qb-status').textContent = 'Set a limit > 0'; return; }
+      const fresh = await getSettings();
+      const rules = fresh.bingeRules || [];
+      if (rules.some(r => r.domain === domain)) {
+        document.getElementById('qb-status').textContent = 'Already added.';
+        return;
+      }
+      rules.push({ id: Date.now().toString(), enabled: true, domain, limitSecs, windowHours: hrs });
+      await new Promise(r => chrome.storage.local.set({ bingeRules: rules }, r));
+      document.getElementById('qb-status').textContent = '✓ Binge rule saved!';
+      document.getElementById('qb-save').disabled = true;
+      document.getElementById('quick-binge-btn').style.display = 'none';
+    });
+
+    // Save to focus window
+    document.getElementById('qw-save').addEventListener('click', async () => {
+      const idx = parseInt(document.getElementById('qw-window-select').value);
+      const fresh = await getSettings();
+      const wins2 = fresh.focusWindows || [];
+      if (!wins2[idx]) { document.getElementById('qw-status').textContent = 'Invalid window.'; return; }
+      const blocked = wins2[idx].blockedDomains || [];
+      if (blocked.includes(domain)) {
+        document.getElementById('qw-status').textContent = 'Already in this window.';
+        return;
+      }
+      blocked.push(domain);
+      wins2[idx].blockedDomains = blocked;
+      await new Promise(r => chrome.storage.local.set({ focusWindows: wins2 }, r));
+      document.getElementById('qw-status').textContent = '✓ Added to window!';
+      document.getElementById('qw-save').disabled = true;
+      document.getElementById('quick-window-btn').style.display = 'none';
     });
   });
 

@@ -362,3 +362,111 @@ body {
   text-transform: uppercase;
 }
 .binge-tab-reset-btn:hover { color: var(--accent); }
+
+/* ── Quick block section ── */
+.quick-domain {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent-light);
+  margin-bottom: 10px;
+  word-break: break-all;
+}
+
+.quick-btns {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.quick-btn {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+.quick-btn:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
+  color: var(--accent-light);
+}
+.quick-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.quick-form {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.quick-form-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.quick-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  white-space: nowrap;
+  min-width: 80px;
+}
+
+.quick-selects {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+}
+
+.quick-select {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  padding: 5px 8px;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' stroke='rgba(255,240,200,0.4)' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 22px;
+}
+.quick-select:focus { outline: none; border-color: var(--accent); }
+
+.quick-save-btn {
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: 8px;
+  color: var(--accent-light);
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+  width: 100%;
+}
+.quick-save-btn:hover { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+.quick-save-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.quick-status {
+  font-size: 11px;
+  color: var(--accent-light);
+  min-height: 14px;
+  text-align: center;
+}

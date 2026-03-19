@@ -1,31 +1,30 @@
-# AI Distraction Blocker — Architecture
+# qC Blocker Extension — Architecture
 
 ## What It Does
 
-A Manifest V3 Chrome extension that detects and blocks distracting websites during
-configurable focus hours. Uses rule-based classification first, then falls back to an
-AI API (Claude Sonnet 4.6 via unlimitedclaude.com) for ambiguous URLs. Tracks binge
-usage per domain and escalates interventions from soft warnings to hard blocks.
+A Manifest V3 Chrome extension that blocks websites you manually configure during
+focus hours. No AI, no hardcoded domain lists — only what you explicitly add gets blocked.
+Tracks binge usage per domain and escalates interventions from warnings to hard blocks.
 
 ---
 
 ## Project Structure
 
 ```
-ai-distraction-blocker/
-├── manifest.json              # MV3 extension config — declares permissions, scripts, icons
+qc-blocker/
+├── manifest.json              # MV3 config — permissions, scripts, icons
 ├── background/
-│   └── worker.js              # Service worker — core classification + storage logic
+│   └── worker.js              # Service worker — all decision logic and storage
 ├── content/
-│   ├── content.js             # Injected into every page — renders overlays, tracks scrolling
-│   └── overlay.css            # Styles for all in-page overlay UI
+│   ├── content.js             # Injected into every page — overlays, binge indicator
+│   └── overlay.css            # In-page UI with CSS variable theming
 ├── popup/
 │   ├── popup.html             # Toolbar popup markup
-│   ├── popup.js               # Popup logic — status, stats, quick actions
+│   ├── popup.js               # Status, stats, focus windows
 │   └── popup.css              # Popup styles
 ├── options/
-│   ├── options.html           # Full settings page markup
-│   ├── options.js             # Settings logic — 6 sections, charts, import/export
+│   ├── options.html           # Full settings page
+│   ├── options.js             # All settings logic — charts, rules, whitelist, theme
 │   └── options.css            # Settings styles
 └── icons/
     ├── icon16.png
@@ -37,98 +36,95 @@ ai-distraction-blocker/
 
 ## Tech Stack
 
-- Vanilla JS — no frameworks, no build step, runs directly in the browser
+- Vanilla JS — no frameworks, no build step, runs directly in Chrome
 - Chrome Extensions API (Manifest V3)
-  - chrome.storage.local     — persistent settings and stats
-  - chrome.alarms            — minute-tick for stat tracking
-  - chrome.notifications     — binge warnings
-  - chrome.tabs / webNavigation — tab lifecycle and SPA navigation
-- Web Audio API — alert sounds on overlay display
-- External API — POST https://api.unlimitedclaude.com/v1/chat/completions
-  - Model: claude-sonnet-4.6
-  - Used only for ambiguous URLs that rule-based logic can't classify
+  - chrome.storage.local     — all settings and stats
+  - chrome.alarms            — minute tick for pending changes + block expiry cleanup
+  - chrome.notifications     — binge warning at 80% threshold
+  - chrome.tabs              — tab lifecycle and cleanup
+- Web Audio API             — alert sounds (gated behind user gesture)
+- Pure SVG                  — all charts (bar, sparkline, donut, radial arcs)
 
 ---
 
 ## Entry Points
 
-| File                  | Trigger                                              |
-|-----------------------|------------------------------------------------------|
-| background/worker.js  | Registered as service worker; starts on browser open |
-| content/content.js    | Injected at document_idle on every page load         |
-| popup/popup.html      | Opened when user clicks the extension icon           |
-| options/options.html  | Opened via chrome.runtime.openOptionsPage()          |
+| File | Trigger |
+|------|---------|
+| background/worker.js | Registered as service worker; starts on browser open |
+| content/content.js | Injected at document_idle on every page load |
+| popup/popup.html | Opened when user clicks the extension icon |
+| options/options.html | Opened via chrome.runtime.openOptionsPage() |
 
 ---
 
 ## Component Breakdown
 
 ### background/worker.js — The Brain
-Runs as a persistent service worker. Owns all decision logic and storage.
+
+Owns all decision logic, storage reads/writes, and in-memory state.
 
 Key responsibilities:
-- DEFAULTS / storage schema — initializes settings on first install
-- Migration — converts legacy blockTime format to focusWindows array
-- isInAnyFocusWindow()     — checks if current time is inside an enabled focus window
-- isWhitelisted()          — matches hostname against user's whitelist
-- ruleBasedClassify()      — hardcoded ~20 distracting domains; special YouTube logic:
-                              homepage/shorts = distracting, /watch?v= = productive
-- classifyWithAI()         — POSTs URL + title + meta + body excerpt to the AI API;
-                              expects { classification, reason } back
-- handlePageClassify()     — main decision pipeline (see Data Flow below)
-- advanceStage()           — escalates intervention stage per tab (1 → 2 → 3)
-- getBingeStatus()         — sliding window check: sums usage entries within windowHours
-- recordBingeSeconds()     — appends timestamped usage entry for a domain
-- adb-minute-tick alarm    — fires every 60s; increments distractingMinutes stat
-                              for all currently-distracting tabs
-- Tab cleanup              — clears per-tab state on tab close or navigation away
+- Storage schema + defaults + migration
+- `isWindowActiveNow(w)` — checks time range AND day of week
+- `getBlockingWindow(url, focusWindows)` — finds the active window that should block this URL,
+  respecting per-window `blockedDomains`. Empty list = window blocks nothing automatically.
+- `isWhitelisted()` — hostname-level whitelist check
+- `isPathWhitelisted()` — path-prefix whitelist (e.g. reddit.com/r/MachineLearning)
+- `getBingeStatus(domain)` — reads stored + in-memory usage, applies 10-min buffer,
+  returns {usedSecs, limitSecs, blocked, unblockAt}
+- `recordBingeSeconds(domain, secs)` — accumulates in memory, flushes to storage every 5s
+- `setEscalationBlock(domain)` — persists stage-3 block keyed by domain until focus window ends
+- `isEscalationBlocked(domain)` — checks if domain has an active persisted block
+- `handlePageClassify(tabId, msg)` — main decision pipeline (see Data Flow)
+- `advanceStage(tabId)` — increments stage 1→2→3, persists escalation block at stage 3
+- Alarm tick (every 60s):
+  - Apply pending binge rule changes (strict mode, when block expires)
+  - Apply pending focus window changes (strict mode, when window ends)
+  - Clean up expired escalation blocks
 
 ### content/content.js — The UI Layer
-Injected into every page. Communicates with the worker via chrome.runtime.sendMessage.
+
+Injected into every page. Communicates with worker via chrome.runtime.sendMessage
+wrapped in `safeSend()` which guards against invalidated extension context.
 
 Key responsibilities:
-- classifyCurrentPage()    — sends CLASSIFY_PAGE with page metadata; calls showStage()
-- showStage(stage)         — renders the correct overlay:
-    Stage 0  no overlay (productive / whitelisted / outside hours)
-    Stage 1  "Focus Check" — soft warning; Go Back / Snooze 5min / Allow Once / Continue
-    Stage 2  "Last Warning" — same options, escalated tone
-    Stage 3  Full-page hard block — dark screen, motivational quote, Leave button,
-             live countdown timer if binge-blocked
-- showCountdownBadge()     — floating SVG ring countdown (20s) between stage transitions
-- showBingeIndicator()     — persistent bottom-left widget: domain usage bar + time left
-- startBingeHeartbeat()    — sends BINGE_HEARTBEAT every 30s to record usage;
-                             triggers stage 3 if binge limit is reached mid-session
-- SPA navigation           — patches history.pushState/replaceState + popstate listener
-                             to re-classify on client-side URL changes
-- Doomscroll detection     — tracks scroll velocity; 10+ rapid bursts re-trigger classify
-- Keyboard shortcut        — Escape dismisses stage 1/2 overlays
+- `classifyCurrentPage()` — sends CLASSIFY_PAGE with URL + title + meta
+- `showStage(stage)` — renders the correct overlay:
+    Stage 0  no overlay
+    Stage 1  "Focus Check" — Go back / Continue anyway
+    Stage 2  "Last Warning" — Go back / I'll take the risk
+    Stage 3  Full-page hard block — Leave button, binge countdown if applicable
+- `showBingeIndicator(status)` — persistent bottom-left widget, created once and
+  updated in-place every second (no DOM flicker)
+- `startBingeHeartbeat(url)` — sends BINGE_HEARTBEAT every 1s; triggers stage 3
+  within 1s of limit being hit
+- Theme applied via class on overlay element (adb-theme-midnight etc.)
+- SPA navigation — patches history.pushState/replaceState + popstate
+- Doomscroll detection — rapid scroll bursts re-trigger classify
+- Keyboard shortcut — Escape dismisses stage 1/2
 
-### popup/popup.js — Quick Actions
-Shown when user clicks the toolbar icon.
+### popup/popup.js — Quick Status
 
-Displays:
-- Status badge: Blocking Active / Outside Hours / Paused / Site Blocked
-- Today's stats: interventions, wasted minutes, exits
-- Focus windows list with active/inactive indicators
-- Binge usage bar for the current tab's domain
-- Pause 30min / Resume toggle
-- Whitelist current site button
-- Link to full settings page
+Shows current blocking status, today's stats, and focus windows list.
+No pause button — blocking cannot be bypassed from the popup.
 
 ### options/options.js — Full Settings
-6-section settings page with sidebar navigation.
+
+7-section settings page with sidebar navigation.
 
 Sections:
-- Dashboard      — hero stats, focus score (% of interventions where user exited),
-                   day streak, weekly bar chart, daily breakdown table
-- Focus Windows  — add/edit/delete time windows (label, start, end, enabled toggle)
-- Binge Guard    — add/edit/delete per-domain rules (limit in min/sec, rolling window hours);
-                   shows live usage bar per rule
-- Intervention   — choose mode: Soft Nudge / Hard Block / Escalating (default)
-- Whitelist      — add/remove always-allowed domains
-- API Key        — save UnlimitedClaude API key (stored locally, never sent elsewhere)
+- Dashboard      — stat cards, strict blocking toggle, focus score, donut chart,
+                   30-day sparkline, weekly SVG bar chart, windows + binge radials
+- Focus Windows  — add/edit/delete windows with time range, day picker, blocked domains
+- Binge Guard    — add/edit/delete rules with dropdown selects (min/sec/hr),
+                   how-to guide, strict mode toggle
+- Intervention   — Hard Block or Escalating mode
+- Whitelist      — domain and path-level entries
+- Theme          — 5 themes with live preview
+- Settings       — export/import JSON, reset stats, copy debug info
 
-Also handles: export/import settings as JSON, reset stats, copy debug info.
+`chrome.storage.onChanged` drives all re-renders (150ms debounce) — no polling.
 
 ---
 
@@ -137,88 +133,100 @@ Also handles: export/import settings as JSON, reset stats, copy debug info.
 ```
 Page loads
   └─► content.js: classifyCurrentPage()
-        └─► [CLASSIFY_PAGE msg] ──► worker.js: handlePageClassify()
-                ├─ getBingeStatus()        → blocked?  → return stage 3
-                ├─ allowedOnceTabs?        → allowed?  → return stage 0
-                ├─ pauseUntil > now?       → paused?   → return stage 0
-                ├─ isInAnyFocusWindow()    → outside?  → return stage 0
-                ├─ isWhitelisted()         → listed?   → return stage 0
-                ├─ ruleBasedClassify()     → productive → return stage 0
-                │                         → distracting → return stage 1 (or 3 if hard mode)
-                │                         → null (ambiguous)
-                └─ classifyWithAI()        → productive → return stage 0
-                                           → distracting → return stage 1 (or 3 if hard mode)
-        └─► content.js: showStage(stage)
-                ├─ stage 1: Focus Check overlay
-                │     └─ "Continue" clicked → 20s countdown badge
-                │           └─► [STAGE_ADVANCE] → worker returns stage 2
-                ├─ stage 2: Last Warning overlay
-                │     └─ "Continue" clicked → 20s countdown badge
-                │           └─► [STAGE_ADVANCE] → worker returns stage 3
-                └─ stage 3: Hard block (no escape unless binge countdown expires)
+        └─► [CLASSIFY_PAGE] ──► worker.js: handlePageClassify()
+                ├─ isPathWhitelisted()      → exempt? → stage 0
+                ├─ isWhitelisted()          → exempt? → stage 0
+                ├─ getBingeStatus()         → blocked? → stage 3
+                ├─ isEscalationBlocked()    → blocked? → stage 3
+                ├─ allowedOnceTabs?         → stage 0
+                ├─ pauseUntil > now?        → stage 0
+                ├─ getBlockingWindow()      → no active window? → stage 0
+                ├─ domain in blockedDomains?
+                │     No  → stage 0 (binge indicator still shown if rule exists)
+                │     Yes → start intervention
+                └─► mode = hard → stage 3
+                    mode = both → stage 1
 
-Every 30s while on a distracting page:
-  content.js: [BINGE_HEARTBEAT] ──► worker.js: recordBingeSeconds()
-                                          └─► getBingeStatus() → blocked? → push stage 3
+        └─► content.js: showStage(stage)
+                ├─ stage 1: Focus Check
+                │     "Continue" → 20s countdown → STAGE_ADVANCE → stage 2
+                ├─ stage 2: Last Warning
+                │     "Continue" → 20s countdown → STAGE_ADVANCE → stage 3
+                │           └─► worker: setEscalationBlock(domain)
+                └─ stage 3: Hard block
+                      "Leave" → CLEAR_ESCALATION_BLOCK → history.back()
+
+Every 1s while on a blocked domain:
+  content.js: [BINGE_HEARTBEAT] ──► worker: recordBingeSeconds(domain, 1)
+                                        └─► getBingeStatus() → blocked? → push stage 3
+                                        (storage flush every 5s via setTimeout)
 
 Every 60s (chrome.alarms):
-  worker.js: count tabs currently in distracting state → increment distractingMinutes stat
+  worker: clean expired escalation blocks
+          apply pending strict-mode changes (binge rules + focus windows)
 ```
 
 ---
 
-## Storage Schema (chrome.storage.local)
+## Storage Schema
 
-| Key              | Type     | Description                                              |
-|------------------|----------|----------------------------------------------------------|
-| apiKey           | string   | UnlimitedClaude API key (optional)                       |
-| focusWindows     | array    | [{id, enabled, label, start, end}]                       |
-| interventionMode | string   | "soft" / "hard" / "both" (escalating)                    |
-| whitelist        | string[] | Always-allowed hostnames                                 |
-| bingeRules       | array    | [{id, enabled, domain, limitSecs, windowHours}]          |
-| bingeUsage       | object   | {domain: [{ts, secs}]} — rolling timestamped usage log   |
-| stats            | object   | {"YYYY-MM-DD": {distractingMinutes, interventions, exited}} |
-| pauseUntil       | number   | Unix ms timestamp; blocking disabled until this time     |
-| _userConfigured  | bool     | Prevents overwriting user settings with defaults         |
-
----
-
-## AI Classification
-
-Only triggered when ruleBasedClassify() returns null (ambiguous URLs — e.g. YouTube
-playlists, channels, search results, unknown domains).
-
-Request:
-  POST https://api.unlimitedclaude.com/v1/chat/completions
-  Authorization: Bearer <apiKey>
-  {
-    model: "claude-sonnet-4.6",
-    max_tokens: 100,
-    system: "You are a productivity assistant...",
-    messages: [{ role: "user", content: "<url> <title> <meta> <body excerpt>" }]
-  }
-
-Expected response:
-  { classification: "productive" | "distracting", reason: "..." }
-
-The extension works fully without an API key — AI classification is skipped and
-ambiguous URLs are treated as productive (not blocked).
+| Key | Type | Description |
+|-----|------|-------------|
+| `focusWindows` | array | `[{id, enabled, label, start, end, days[], blockedDomains[]}]` |
+| `interventionMode` | string | `"hard"` or `"both"` (escalating) |
+| `whitelist` | string[] | Always-allowed hostnames |
+| `pathWhitelist` | array | `[{pattern, label}]` — path-level exemptions |
+| `bingeRules` | array | `[{id, enabled, domain, limitSecs, windowHours}]` |
+| `bingeUsage` | object | `{domain: [{ts, secs}]}` — rolling timestamped usage log |
+| `strictBlocking` | bool | Lock rules while a block is active |
+| `pendingBingeRules` | object | `{domain: {action, rule}}` — queued changes |
+| `pendingFocusWindowChanges` | object | `{windowId: {action, window}}` — queued changes |
+| `escalationBlocks` | object | `{domain: expiresAt}` — persisted stage-3 blocks |
+| `theme` | string | `"default"` / `"midnight"` / `"forest"` / `"crimson"` / `"slate"` |
+| `stats` | object | `{"YYYY-MM-DD": {distractingMinutes, interventions, exited}}` |
+| `pauseUntil` | number | Unix ms — blocking paused until this time |
 
 ---
 
 ## Intervention Modes
 
-| Mode                  | Behavior                                              |
-|-----------------------|-------------------------------------------------------|
-| Soft Nudge            | Stage 1 only — easy to dismiss                        |
-| Hard Block            | Jumps straight to stage 3 — no escape                 |
-| Escalating (default)  | Stage 1 → 20s → Stage 2 → 20s → Stage 3              |
+| Mode | Behaviour |
+|------|-----------|
+| Hard Block | Jumps straight to stage 3 — full-page lock, no warnings |
+| Escalating (default) | Stage 1 → 20s → Stage 2 → 20s → Stage 3 |
+
+Stage 3 is persisted to `escalationBlocks` so page refreshes don't escape the block.
+Block expires when the active focus window ends.
 
 ---
 
-## Binge Guard
+## Binge Guard Detail
 
-Tracks time spent on a domain within a rolling time window (e.g. 30 min in last 2 hours).
-Usage is stored as timestamped entries in bingeUsage. On each BINGE_HEARTBEAT (every 30s),
-entries older than windowHours are pruned and remaining seconds are summed. If the sum
-exceeds limitSecs, the tab is hard-blocked with a countdown showing when the window resets.
+- Usage stored as timestamped entries `{ts, secs}` in `bingeUsage`
+- In-memory accumulator (`bingeAccumulator`) batches writes — flushes every 5s
+- `getBingeStatus` adds unflushed in-memory seconds to stored total for accuracy
+- Effective limit = `limitSecs` capped at `windowHours × 3600 - 600` (10-min buffer)
+- At 80% usage → chrome notification fires once per session
+- At 100% → hard block; `unblockAt` calculated from oldest entry that would drop usage below limit
+
+---
+
+## Strict Blocking
+
+When enabled:
+- Binge rules: save/delete/reset are locked while domain is blocked → changes queued in `pendingBingeRules`
+- Focus windows: save/delete locked while window is active → changes queued in `pendingFocusWindowChanges`
+- Alarm tick applies queued changes once the block/window expires
+- Adding new rules is always allowed
+- Toggle visible on Dashboard (always accessible) and in Binge Guard settings
+
+---
+
+## Theming
+
+All colours in `overlay.css`, `options.css`, and `popup.css` use CSS variables.
+Theme classes (`adb-theme-midnight` etc.) are applied to:
+- `#adb-overlay` and `#adb-binge-indicator` in content scripts
+- `document.documentElement` in options and popup pages
+
+Live preview in Settings → Theme (no save needed to preview).

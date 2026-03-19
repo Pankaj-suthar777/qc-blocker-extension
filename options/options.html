@@ -1,129 +1,319 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI Distraction Blocker</title>
-  <link rel="stylesheet" href="options.css" />
-</head>
-<body>
-  <!-- Sidebar -->
-  <aside class="sidebar">
-    <div class="sidebar-brand">
-      <span class="brand-icon">🧠</span>
-      <div>
-        <div class="brand-name">Distraction Blocker</div>
-        <div id="live-status" class="live-pill">
-          <span class="live-dot"></span>
-          <span id="live-status-text">Checking...</span>
-        </div>
-      </div>
-    </div>
-
-    <nav class="sidebar-nav">
-      <a class="nav-item active" data-section="dashboard" href="#">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-        Dashboard
-      </a>
-      <a class="nav-item" data-section="focus" href="#">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        Focus Windows
-      </a>
-      <a class="nav-item" data-section="binge" href="#">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-        Binge Guard
-      </a>
-      <a class="nav-item" data-section="mode" href="#">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        Intervention
-      </a>
-      <a class="nav-item" data-section="whitelist" href="#">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-        Whitelist
-      </a>
-      <a class="nav-item" data-section="theme" href="#">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 0 20"/><path d="M12 2v20"/></svg>
-        Theme
-      </a>
-    </nav>
-
-    <div class="sidebar-footer">
-      <button id="export-btn" class="btn-reset-all" style="background:rgba(245,158,11,0.08);color:#fbbf24;border-color:rgba(245,158,11,0.2);margin-bottom:6px">Export Settings</button>
-      <label id="import-label" class="btn-reset-all" style="background:rgba(245,158,11,0.05);color:rgba(251,191,36,0.6);border-color:rgba(245,158,11,0.12);cursor:pointer;display:block;text-align:center;margin-bottom:10px">
-        Import Settings
-        <input type="file" id="import-input" accept=".json" style="display:none" />
-      </label>
-      <button id="reset-stats-btn" class="btn-reset-all">Reset Stats</button>
-      <div id="reset-status" class="status-msg"></div>
-      <button id="copy-debug-btn" class="btn-reset-all" style="background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.3);border-color:rgba(255,255,255,0.08);margin-top:6px">Copy Debug Info</button>
-      <div class="sidebar-version">v1.0.0</div>
-    </div>
-  </aside>
-
-  <!-- Main content -->
-  <main class="main">
-    <!-- Paused banner -->
-    <div id="paused-banner" class="paused-banner" style="display:none">
-      <span>⏸ Blocking is paused</span>
-      <span id="paused-banner-time"></span>
-      <button id="paused-banner-resume">Resume now</button>
-    </div>
-
-    <!-- Dashboard -->
-    <section class="page-section active" id="section-dashboard">
-      <div class="section-header">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>qC Blocker Extension</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <span class="brand-icon">🧠</span>
         <div>
-          <h2>Dashboard</h2>
-          <p>Your focus activity at a glance</p>
-        </div>
-      </div>
-
-      <div class="stats-hero">
-        <div class="stat-hero-card purple">
-          <div class="stat-hero-icon">🛡️</div>
-          <div class="stat-hero-val" id="s-interventions">0</div>
-          <div class="stat-hero-label">Interventions today</div>
-        </div>
-        <div class="stat-hero-card red">
-          <div class="stat-hero-icon">⏱️</div>
-          <div class="stat-hero-val" id="s-minutes">0</div>
-          <div class="stat-hero-label">Distracted minutes</div>
-        </div>
-        <div class="stat-hero-card green">
-          <div class="stat-hero-icon">🚪</div>
-          <div class="stat-hero-val" id="s-exited">0</div>
-          <div class="stat-hero-label">Sites exited</div>
-        </div>
-      </div>
-
-      <!-- Focus score -->
-      <div class="focus-score-card">
-        <div class="focus-score-left">
-          <div class="focus-score-label" data-tooltip="% of interventions where you chose to leave">Focus Score</div>
-          <div class="focus-score-sub" id="s-score-sub">No interventions yet today</div>
-        </div>
-        <div class="focus-score-right">
-          <div class="focus-score-val" id="s-score">—</div>
-          <div class="focus-score-bar-wrap">
-            <div class="focus-score-bar" id="s-score-bar" style="width:0%"></div>
+          <div class="brand-name">qC Blocker</div>
+          <div id="live-status" class="live-pill">
+            <span class="live-dot"></span>
+            <span id="live-status-text">Checking...</span>
           </div>
         </div>
-        <div class="focus-streak">
-          <div class="focus-streak-val" id="s-streak">0</div>
-          <div class="focus-streak-label">day streak</div>
-        </div>
       </div>
 
-      <div class="dash-grid">
-        <div class="dash-card">
-          <div class="dash-card-title">Active Focus Windows</div>
-          <div id="dash-windows" class="dash-windows-list"></div>
+      <nav class="sidebar-nav">
+        <a class="nav-item active" data-section="dashboard" href="#">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect x="3" y="3" width="7" height="7" />
+            <rect x="14" y="3" width="7" height="7" />
+            <rect x="14" y="14" width="7" height="7" />
+            <rect x="3" y="14" width="7" height="7" />
+          </svg>
+          Dashboard
+        </a>
+        <a class="nav-item" data-section="focus" href="#">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <polyline points="12 6 12 12 16 14" />
+          </svg>
+          Focus Windows
+        </a>
+        <a class="nav-item" data-section="binge" href="#">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path
+              d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+            />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+          Binge Guard
+        </a>
+        <a class="nav-item" data-section="mode" href="#">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="12" cy="12" r="3" />
+            <path
+              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+            />
+          </svg>
+          Intervention
+        </a>
+        <a class="nav-item" data-section="whitelist" href="#">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <polyline points="9 11 12 14 22 4" />
+            <path
+              d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"
+            />
+          </svg>
+          Whitelist
+        </a>
+        <a class="nav-item" data-section="theme" href="#">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 2a10 10 0 0 1 0 20" />
+            <path d="M12 2v20" />
+          </svg>
+          Theme
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button
+          id="export-btn"
+          class="btn-reset-all"
+          style="
+            background: rgba(245, 158, 11, 0.08);
+            color: #fbbf24;
+            border-color: rgba(245, 158, 11, 0.2);
+            margin-bottom: 6px;
+          "
+        >
+          Export Settings
+        </button>
+        <label
+          id="import-label"
+          class="btn-reset-all"
+          style="
+            background: rgba(245, 158, 11, 0.05);
+            color: rgba(251, 191, 36, 0.6);
+            border-color: rgba(245, 158, 11, 0.12);
+            cursor: pointer;
+            display: block;
+            text-align: center;
+            margin-bottom: 10px;
+          "
+        >
+          Import Settings
+          <input
+            type="file"
+            id="import-input"
+            accept=".json"
+            style="display: none"
+          />
+        </label>
+        <button id="reset-stats-btn" class="btn-reset-all">Reset Stats</button>
+        <div id="reset-status" class="status-msg"></div>
+        <button
+          id="copy-debug-btn"
+          class="btn-reset-all"
+          style="
+            background: rgba(255, 255, 255, 0.04);
+            color: rgba(255, 255, 255, 0.3);
+            border-color: rgba(255, 255, 255, 0.08);
+            margin-top: 6px;
+          "
+        >
+          Copy Debug Info
+        </button>
+        <div class="sidebar-donate">
+          <div class="sidebar-donate-title">❤️ Support qC Blocker</div>
+          <div class="sidebar-donate-sub">
+            If this helps you stay focused, consider a small donation!
+          </div>
+          <div class="sidebar-donate-btns">
+            <button class="sidebar-donate-btn" id="donate-upi-btn">
+              Pay via UPI
+            </button>
+            <a
+              class="sidebar-donate-btn sidebar-donate-coffee"
+              href="https://buymeacoffee.com/YOUR_USERNAME"
+              target="_blank"
+              >☕ Coffee</a
+            >
+          </div>
         </div>
-        <div class="dash-card">
-          <div class="dash-card-title">Binge Guard Rules</div>
-          <div id="dash-binge" class="dash-binge-list"></div>
+        <div class="sidebar-version">v1.0.0</div>
+      </div>
+    </aside>
+
+    <!-- Main content -->
+    <main class="main">
+      <!-- Paused banner -->
+      <div id="paused-banner" class="paused-banner" style="display: none">
+        <span>⏸ Blocking is paused</span>
+        <span id="paused-banner-time"></span>
+        <button id="paused-banner-resume">Resume now</button>
+      </div>
+
+      <!-- Dashboard -->
+      <section class="page-section active" id="section-dashboard">
+        <div class="section-header">
+          <div>
+            <h2>Dashboard</h2>
+            <p>Your focus activity at a glance</p>
+          </div>
         </div>
-        <div class="dash-card dash-card-full">
+
+        <!-- UPI modal -->
+        <div id="upi-modal" class="upi-modal" style="display: none">
+          <div class="upi-modal-box">
+            <button class="upi-modal-close" id="upi-modal-close">
+              &times;
+            </button>
+            <div class="upi-modal-title">Pay via UPI</div>
+            <div class="upi-modal-id" id="upi-id-text">your@upi</div>
+            <button class="upi-copy-btn" id="upi-copy-btn">Copy UPI ID</button>
+            <div class="upi-modal-hint">
+              Open any UPI app (GPay, PhonePe, Paytm) and send to the ID above.
+            </div>
+          </div>
+        </div>
+
+        <!-- Row 1: stat cards -->
+        <div class="stats-hero">
+          <div class="stat-hero-card purple">
+            <div class="stat-hero-icon">🛡️</div>
+            <div class="stat-hero-val" id="s-interventions">0</div>
+            <div class="stat-hero-label">Interventions today</div>
+          </div>
+          <div class="stat-hero-card red">
+            <div class="stat-hero-icon">⏱️</div>
+            <div class="stat-hero-val" id="s-minutes">0</div>
+            <div class="stat-hero-label">Distracted minutes</div>
+          </div>
+          <div class="stat-hero-card green">
+            <div class="stat-hero-icon">🚪</div>
+            <div class="stat-hero-val" id="s-exited">0</div>
+            <div class="stat-hero-label">Sites exited</div>
+          </div>
+          <div class="stat-hero-card strict-card" id="strict-hero-card">
+            <div class="strict-hero-top">
+              <div class="stat-hero-icon">🔒</div>
+              <label class="switch">
+                <input type="checkbox" id="strict-blocking-toggle-dash" />
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="stat-hero-label">Strict Blocking</div>
+            <div class="strict-hero-sub" id="strict-hero-sub">Off</div>
+          </div>
+        </div>
+
+        <!-- Row 2: focus score + donut -->
+        <div class="dash-row-2">
+          <div class="focus-score-card">
+            <div class="focus-score-left">
+              <div class="focus-score-label">Focus Score</div>
+              <div class="focus-score-sub" id="s-score-sub">
+                No interventions yet today
+              </div>
+            </div>
+            <div class="focus-score-right">
+              <div class="focus-score-val" id="s-score">—</div>
+              <div class="focus-score-bar-wrap">
+                <div
+                  class="focus-score-bar"
+                  id="s-score-bar"
+                  style="width: 0%"
+                ></div>
+              </div>
+            </div>
+            <div class="focus-streak">
+              <div class="focus-streak-val" id="s-streak">0</div>
+              <div class="focus-streak-label">day streak</div>
+            </div>
+          </div>
+          <div class="dash-card donut-card">
+            <div class="dash-card-title">Today's Breakdown</div>
+            <div id="donut-chart" class="donut-wrap"></div>
+          </div>
+        </div>
+
+        <!-- Row 3: 30-day sparkline -->
+        <div class="dash-card dash-full-card">
+          <div class="dash-card-title-row">
+            <div class="dash-card-title">30-Day Trend</div>
+            <span id="spark-tip" class="spark-tip" style="display: none"></span>
+          </div>
+          <div id="sparkline-chart" class="sparkline-wrap"></div>
+        </div>
+
+        <!-- Row 4: windows + binge -->
+        <div class="dash-grid">
+          <div class="dash-card">
+            <div class="dash-card-title">Active Focus Windows</div>
+            <div id="dash-windows" class="dash-windows-list"></div>
+          </div>
+          <div class="dash-card">
+            <div class="dash-card-title">Binge Guard</div>
+            <div id="binge-radials" class="binge-radials-wrap"></div>
+          </div>
+        </div>
+
+        <!-- Row 5: weekly chart -->
+        <div class="dash-card dash-full-card">
           <div class="dash-card-title">Weekly Interventions</div>
           <div id="weekly-chart" class="weekly-chart"></div>
           <table class="weekly-table" id="weekly-table">
@@ -139,151 +329,289 @@
             <tbody id="weekly-table-body"></tbody>
           </table>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <!-- Focus Windows -->
-    <section class="page-section" id="section-focus">
-      <div class="section-header">
-        <div>
-          <h2>Focus Windows</h2>
-          <p>Extension only intervenes during these time slots</p>
+      <!-- Focus Windows -->
+      <section class="page-section" id="section-focus">
+        <div class="section-header">
+          <div>
+            <h2>Focus Windows</h2>
+            <p>Extension only intervenes during these time slots</p>
+          </div>
+          <button id="add-window" class="btn-primary">+ Add Window</button>
         </div>
-        <button id="add-window" class="btn-primary">+ Add Window</button>
-      </div>
-      <div id="windows-list" class="list-container"></div>
-      <div id="windows-status" class="status-msg"></div>
-    </section>
 
-    <!-- Binge Guard -->
-    <section class="page-section" id="section-binge">
-      <div class="section-header">
-        <div>
-          <h2>Binge Guard</h2>
-          <p>Block a site after spending too much time on it</p>
-        </div>
-        <button id="add-binge-rule" class="btn-primary">+ Add Rule</button>
-      </div>
-      <div class="strict-blocking-row">
-        <div class="strict-blocking-info">
-          <div class="strict-blocking-title">Strict Blocking</div>
-          <div class="strict-blocking-desc">When enabled, existing rules cannot be changed or deleted while a site is blocked. Changes are queued and applied after the block expires. Adding new rules is always allowed.</div>
-        </div>
-        <label class="switch">
-          <input type="checkbox" id="strict-blocking-toggle" />
-          <span class="slider"></span>
-        </label>
-      </div>
-      <div id="binge-rules-list" class="list-container"></div>
-      <div id="binge-status" class="status-msg"></div>
-    </section>
-
-    <!-- Intervention Mode -->
-    <section class="page-section" id="section-mode">
-      <div class="section-header">
-        <div>
-          <h2>Intervention Mode</h2>
-          <p>How aggressively should the extension intervene?</p>
-        </div>
-      </div>
-      <div class="radio-group">
-        <label class="radio-card">
-          <input type="radio" name="mode" value="hard" />
-          <div class="radio-card-inner">
-            <div class="radio-card-icon">🔒</div>
-            <div>
-              <div class="radio-card-title">Hard Block</div>
-              <div class="radio-card-desc">Immediately locks the page with a quote. No warnings.</div>
+        <div class="binge-guide">
+          <div class="binge-guide-title">How it works</div>
+          <div class="binge-guide-steps">
+            <div class="binge-guide-step">
+              <span class="binge-guide-num">1</span>
+              <div>
+                <strong>Label</strong> — give the window a name, e.g.
+                <code>Work</code> or <code>Deep Focus</code>
+              </div>
+            </div>
+            <div class="binge-guide-step">
+              <span class="binge-guide-num">2</span>
+              <div>
+                <strong>Time range</strong> — set start and end time, e.g.
+                <code>09:00 → 17:00</code>. The extension only activates inside
+                this range.
+              </div>
+            </div>
+            <div class="binge-guide-step">
+              <span class="binge-guide-num">3</span>
+              <div>
+                <strong>Days</strong> — pick which days this window applies.
+                Unchecked days are always free.
+              </div>
+            </div>
+            <div class="binge-guide-step">
+              <span class="binge-guide-num">4</span>
+              <div>
+                <strong>Block these sites</strong> — enter domains to block
+                during this window, e.g. <code>reddit.com, x.com</code>. Leave
+                empty and nothing gets blocked automatically.
+              </div>
+            </div>
+            <div class="binge-guide-step">
+              <span class="binge-guide-num">5</span>
+              <div>
+                You can have <strong>multiple windows</strong> — e.g. a morning
+                block and an afternoon block with different sites.
+              </div>
             </div>
           </div>
-        </label>
-        <label class="radio-card">
-          <input type="radio" name="mode" value="both" />
-          <div class="radio-card-inner">
-            <div class="radio-card-icon">⚡</div>
-            <div>
-              <div class="radio-card-title">Escalating <span class="badge-rec">Recommended</span></div>
-              <div class="radio-card-desc">2 warnings 20s apart, then full page lock. Most effective.</div>
+        </div>
+
+        <div id="windows-list" class="list-container"></div>
+        <div id="windows-status" class="status-msg"></div>
+      </section>
+
+      <!-- Binge Guard -->
+      <section class="page-section" id="section-binge">
+        <div class="section-header">
+          <div>
+            <h2>Binge Guard</h2>
+            <p>Block a site after spending too much time on it</p>
+          </div>
+          <button id="add-binge-rule" class="btn-primary">+ Add Rule</button>
+        </div>
+
+        <!-- How to use guide -->
+        <div class="binge-guide">
+          <div class="binge-guide-title">How it works</div>
+          <div class="binge-guide-steps">
+            <div class="binge-guide-step">
+              <span class="binge-guide-num">1</span>
+              <div>
+                <strong>Website</strong> — enter the domain you want to limit,
+                e.g. <code>reddit.com</code>
+              </div>
+            </div>
+            <div class="binge-guide-step">
+              <span class="binge-guide-num">2</span>
+              <div>
+                <strong>Block after</strong> — how much time you're allowed
+                before it locks, e.g. <code>20 min 0 sec</code>
+              </div>
+            </div>
+            <div class="binge-guide-step">
+              <span class="binge-guide-num">3</span>
+              <div>
+                <strong>Rolling window</strong> — the time period it tracks
+                usage over, e.g. <code>1 hr</code> means "20 min in any 1-hour
+                stretch"
+              </div>
+            </div>
+            <div class="binge-guide-step">
+              <span class="binge-guide-num">4</span>
+              <div>
+                Once the limit is hit, the site is
+                <strong>hard blocked</strong> until the window resets. The block
+                lifts automatically — no manual override.
+              </div>
             </div>
           </div>
-        </label>
-      </div>
-      <div class="form-footer">
-        <button id="save-mode" class="btn-primary">Save Mode</button>
-        <div id="mode-status" class="status-msg"></div>
-      </div>
-    </section>
-
-    <!-- Whitelist -->
-    <section class="page-section" id="section-whitelist">
-      <div class="section-header">
-        <div>
-          <h2>Whitelist</h2>
-          <p>These domains are always allowed, even during focus hours</p>
         </div>
-      </div>
-      <div class="input-row">
-        <input type="text" id="whitelist-input" placeholder="e.g. notion.so or reddit.com/r/MachineLearning" />
-        <button id="add-whitelist" class="btn-primary">Add</button>
-      </div>
-      <p class="input-hint">Enter a domain (e.g. <code>notion.so</code>) to allow the whole site, or a path (e.g. <code>reddit.com/r/learnprogramming</code>) to allow only that section — bypasses both focus hours and binge guard.</p>
-      <div id="whitelist-status" class="status-msg"></div>
-      <ul id="whitelist-list" class="tag-list"></ul>
-    </section>
-
-    <!-- Theme -->
-    <section class="page-section" id="section-theme">
-      <div class="section-header">
-        <div>
-          <h2>Theme</h2>
-          <p>Customize the look of the block overlays</p>
+        <div class="strict-blocking-row">
+          <div class="strict-blocking-info">
+            <div class="strict-blocking-title">Strict Blocking</div>
+            <div class="strict-blocking-desc">
+              When enabled, existing rules cannot be changed or deleted while a
+              site is blocked. Changes are queued and applied after the block
+              expires. Adding new rules is always allowed.
+            </div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="strict-blocking-toggle" />
+            <span class="slider"></span>
+          </label>
         </div>
-      </div>
-      <div class="theme-grid">
-        <label class="theme-card" data-theme="default">
-          <input type="radio" name="theme" value="default" />
-          <div class="theme-preview theme-preview-default">
-            <span class="theme-dot"></span>
-          </div>
-          <div class="theme-name">Dark Amber</div>
-        </label>
-        <label class="theme-card" data-theme="midnight">
-          <input type="radio" name="theme" value="midnight" />
-          <div class="theme-preview theme-preview-midnight">
-            <span class="theme-dot"></span>
-          </div>
-          <div class="theme-name">Midnight Blue</div>
-        </label>
-        <label class="theme-card" data-theme="forest">
-          <input type="radio" name="theme" value="forest" />
-          <div class="theme-preview theme-preview-forest">
-            <span class="theme-dot"></span>
-          </div>
-          <div class="theme-name">Forest</div>
-        </label>
-        <label class="theme-card" data-theme="crimson">
-          <input type="radio" name="theme" value="crimson" />
-          <div class="theme-preview theme-preview-crimson">
-            <span class="theme-dot"></span>
-          </div>
-          <div class="theme-name">Crimson</div>
-        </label>
-        <label class="theme-card" data-theme="slate">
-          <input type="radio" name="theme" value="slate" />
-          <div class="theme-preview theme-preview-slate">
-            <span class="theme-dot"></span>
-          </div>
-          <div class="theme-name">Slate</div>
-        </label>
-      </div>
-      <div class="form-footer">
-        <button id="save-theme" class="btn-primary">Save Theme</button>
-        <div id="theme-status" class="status-msg"></div>
-      </div>
-    </section>
+        <div id="binge-rules-list" class="list-container"></div>
+        <div id="binge-status" class="status-msg"></div>
+      </section>
 
-  </main>
+      <!-- Intervention Mode -->
+      <section class="page-section" id="section-mode">
+        <div class="section-header">
+          <div>
+            <h2>Intervention Mode</h2>
+            <p>How aggressively should the extension intervene?</p>
+          </div>
+        </div>
 
-  <script src="options.js"></script>
-</body>
+        <div class="radio-group">
+          <label class="radio-card">
+            <input type="radio" name="mode" value="hard" />
+            <div class="radio-card-inner">
+              <div class="radio-card-icon">🔒</div>
+              <div>
+                <div class="radio-card-title">Hard Block</div>
+                <div class="radio-card-desc">
+                  Immediately locks the page with a quote. No warnings.
+                </div>
+              </div>
+            </div>
+          </label>
+          <label class="radio-card">
+            <input type="radio" name="mode" value="both" />
+            <div class="radio-card-inner">
+              <div class="radio-card-icon">⚡</div>
+              <div>
+                <div class="radio-card-title">
+                  Escalating <span class="badge-rec">Recommended</span>
+                </div>
+                <div class="radio-card-desc">
+                  2 warnings 20s apart, then full page lock. Most effective.
+                </div>
+              </div>
+            </div>
+          </label>
+        </div>
+        <div class="form-footer">
+          <button id="save-mode" class="btn-primary">Save Mode</button>
+          <div id="mode-status" class="status-msg"></div>
+        </div>
+      </section>
+
+      <!-- Whitelist -->
+      <section class="page-section" id="section-whitelist">
+        <div class="section-header">
+          <div>
+            <h2>Whitelist</h2>
+            <p>These are always allowed, even during focus hours</p>
+          </div>
+        </div>
+
+        <div class="binge-guide">
+          <div class="binge-guide-title">How it works</div>
+          <div class="binge-guide-steps">
+            <div class="binge-guide-step">
+              <span class="binge-guide-num">1</span>
+              <div>
+                <strong>Domain whitelist</strong> — type a domain like
+                <code>notion.so</code> to allow the entire site. It will never
+                be blocked, regardless of focus windows or binge guard.
+              </div>
+            </div>
+            <div class="binge-guide-step">
+              <span class="binge-guide-num">2</span>
+              <div>
+                <strong>Path whitelist</strong> — type a path like
+                <code>reddit.com/r/MachineLearning</code> to allow only that
+                specific section. The rest of reddit can still be blocked.
+              </div>
+            </div>
+            <div class="binge-guide-step">
+              <span class="binge-guide-num">3</span>
+              <div>
+                Path whitelist is <strong>prefix-matched</strong> — whitelisting
+                <code>reddit.com/r/programming</code> also allows all posts
+                inside it like
+                <code>reddit.com/r/programming/comments/...</code>
+              </div>
+            </div>
+            <div class="binge-guide-step">
+              <span class="binge-guide-num">4</span>
+              <div>
+                Whitelist entries <strong>cannot be added</strong> for a site
+                that is currently hard-blocked by binge guard — wait for the
+                block to expire first.
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="input-row">
+          <input
+            type="text"
+            id="whitelist-input"
+            placeholder="e.g. notion.so or reddit.com/r/MachineLearning"
+          />
+          <button id="add-whitelist" class="btn-primary">Add</button>
+        </div>
+        <p class="input-hint">
+          Enter a domain (e.g. <code>notion.so</code>) to allow the whole site,
+          or a path (e.g. <code>reddit.com/r/learnprogramming</code>) to allow
+          only that section — bypasses both focus hours and binge guard.
+        </p>
+        <div id="whitelist-status" class="status-msg"></div>
+        <ul id="whitelist-list" class="tag-list"></ul>
+      </section>
+
+      <!-- Theme -->
+      <section class="page-section" id="section-theme">
+        <div class="section-header">
+          <div>
+            <h2>Theme</h2>
+            <p>Customize the look of the block overlays and settings page</p>
+          </div>
+        </div>
+
+        <div class="theme-grid">
+          <label class="theme-card" data-theme="default">
+            <input type="radio" name="theme" value="default" />
+            <div class="theme-preview theme-preview-default">
+              <span class="theme-dot"></span>
+            </div>
+            <div class="theme-name">Dark Amber</div>
+          </label>
+          <label class="theme-card" data-theme="midnight">
+            <input type="radio" name="theme" value="midnight" />
+            <div class="theme-preview theme-preview-midnight">
+              <span class="theme-dot"></span>
+            </div>
+            <div class="theme-name">Midnight Blue</div>
+          </label>
+          <label class="theme-card" data-theme="forest">
+            <input type="radio" name="theme" value="forest" />
+            <div class="theme-preview theme-preview-forest">
+              <span class="theme-dot"></span>
+            </div>
+            <div class="theme-name">Forest</div>
+          </label>
+          <label class="theme-card" data-theme="crimson">
+            <input type="radio" name="theme" value="crimson" />
+            <div class="theme-preview theme-preview-crimson">
+              <span class="theme-dot"></span>
+            </div>
+            <div class="theme-name">Crimson</div>
+          </label>
+          <label class="theme-card" data-theme="slate">
+            <input type="radio" name="theme" value="slate" />
+            <div class="theme-preview theme-preview-slate">
+              <span class="theme-dot"></span>
+            </div>
+            <div class="theme-name">Slate</div>
+          </label>
+        </div>
+        <div class="form-footer">
+          <button id="save-theme" class="btn-primary">Save Theme</button>
+          <div id="theme-status" class="status-msg"></div>
+        </div>
+      </section>
+    </main>
+
+    <script src="options.js"></script>
+  </body>
 </html>

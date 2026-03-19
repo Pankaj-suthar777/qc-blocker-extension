@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "AI Distraction Blocker",
+  "name": "qC Blocker Extension",
   "version": "1.0.0",
-  "description": "Intelligently detects distracting content and intervenes during your focus hours.",
+  "description": "Detects distracting content and intervenes during your focus hours.",
   "permissions": [
     "storage",
     "tabs",
@@ -39,7 +39,7 @@
         "default": "Alt+Shift+D",
         "mac": "Alt+Shift+D"
       },
-      "description": "Open Distraction Blocker popup"
+      "description": "Open qC Blocker popup"
     }
   },
   "options_page": "options/options.html",

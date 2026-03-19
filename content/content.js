@@ -1,4 +1,4 @@
-// AI Distraction Blocker — Content Script v3
+// qC Blocker Extension — Content Script v3
 
 // ── Safe message sender — guards against invalidated extension context ──
 function safeSend(msg, cb) {
